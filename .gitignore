@@ -1,0 +1,50 @@
+sandbox/
+bu/
+tmp/
+_private/
+old/
+
+
+# Notepad++ #
+###################
+*.bak
+
+
+# Python #
+###################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg
+dist/
+build/
+*.log
+*.env
+venv/
+.venv/
+*.sqlite
+*.swp
+*.idea/
+.vscode/
+
+
+# LabView #
+###################
+# Libraries
+#*.lvlibp
+#*.llb
+
+# Shared objects (inc. Windows DLLs)
+#*.dll
+#*.so
+#*.so.*
+*.dylib
+
+# Executables
+#*.exe
+
+# Metadata
+#*.aliases
+#*.lvlps
+.cache/
