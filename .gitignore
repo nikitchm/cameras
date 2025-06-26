@@ -13,6 +13,8 @@ old/
 # Python #
 ###################
 __pycache__/
+build/
+dist/
 *.pyc
 *.pyo
 *.pyd
