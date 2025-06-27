@@ -4,14 +4,16 @@ At the moment, the GUI implementation is done with PyQt5 due to the fact that th
 
 
 ### Example for starting the camera GUI:
-Assuming the conda environment for the cameras is called `camera_software` has been created already:\
-* activate `camera_software` environment and run using the python call:\
-`path-to-camera_software-environment/python.exe path-to-camera-gui/camera_gui.py` `--grabber=pycapture2 --width=640 --height=640 --mode=0 --fps=140`
-* run using the conda call:\
-`conda run -n camera_software python path-to-camera-gui\camera_gui.py`
-`--grabber=pycapture2 --width=640 --height=640 --mode=0 --offsetX=500 --offsetY=500`
-* The following call will run detect all opencv cameras and open the first one in the list:\
-`conda run -n camera_software python path-to-camera-gui\camera_gui.py`
+The application includes relative imports which require treating the whole thing as a package. Assuming the conda environment for the cameras called `camera_software` has been already created:\
+* Method 1. Run\
+`run_camera_app.bat`
+* Method 2.
+    * `cd` to the parent folder of the `cameras` package
+    * `conda run -n camera_software python -m cameras`\
+    OR
+    * `conda activate camera_software`\
+    `python -m camera_gui.py`
+
 
 
 ### The instructions for different cameras:

@@ -4,8 +4,11 @@ import time
 import os
 import collections
 
-# --- CORRECTED: Changed from PyQt6.QtCore to PyQt5.QtCore ---
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QWaitCondition
+
+def printm(s: str):
+    print(f"RecordingThread: {s}")
+
 
 class RecordingThread(QThread):
     recording_status_changed = pyqtSignal(bool, bool) # is_recording, is_paused
@@ -27,15 +30,12 @@ class RecordingThread(QThread):
         self._pause_time = 0
         self._elapsed_paused_time = 0
 
-        print("RecordingThread: Not currently recording.")
-
-
     def set_video_properties(self, width: int, height: int, fps: float):
         self._mutex.lock()
         self._width = width
         self._height = height
         self._fps = fps
-        print(f"RecordingThread: Video properties set to {width}x{height}@{fps}fps")
+        printm(f"Video properties set to {width}x{height}@{fps:.3f}fps")
         self._mutex.unlock()
 
     def is_video_properties_set(self) -> bool:
@@ -81,7 +81,7 @@ class RecordingThread(QThread):
         self.start() # Start the QThread's run method
         self._mutex.unlock()
         self.recording_status_changed.emit(True, False)
-        print(f"RecordingThread: Started recording to {output_path}")
+        printm(f"Started recording to {output_path}")
         return True
 
     def pause_recording(self):
@@ -90,7 +90,7 @@ class RecordingThread(QThread):
             self._is_paused = True
             self._pause_time = time.time()
             self.recording_status_changed.emit(True, True)
-            print("RecordingThread: Paused.")
+            printm("Paused.")
         self._mutex.unlock()
 
     def resume_recording(self):
@@ -100,7 +100,7 @@ class RecordingThread(QThread):
             self._elapsed_paused_time += (time.time() - self._pause_time)
             self._wait_condition.wakeAll() # Wake up the writing thread
             self.recording_status_changed.emit(True, False)
-            print("RecordingThread: Resumed.")
+            printm("Resumed.")
         self._mutex.unlock()
 
     def stop_recording(self) -> bool:
@@ -118,7 +118,7 @@ class RecordingThread(QThread):
         self._release_writer()
         self._frame_queue.clear()
         self.recording_status_changed.emit(False, False)
-        print("RecordingThread: Stopped recording.")
+        printm("Stopped recording.")
         return True
 
     def enqueue_frame(self, frame: np.ndarray):
@@ -183,13 +183,13 @@ class RecordingThread(QThread):
                 self._mutex.unlock()
                 time.sleep(0.001) # Small sleep if queue is empty to avoid busy-waiting
 
-        print("RecordingThread: run method finished.") # Indicate run loop completion
+        printm("run method finished.") # Indicate run loop completion
 
     def _release_writer(self):
         if self._video_writer:
             if self._video_writer.isOpened():
                 self._video_writer.release()
-                print("RecordingThread: Video writer released.")
+                printm("Video writer released.")
             self._video_writer = None
 
     def __del__(self):

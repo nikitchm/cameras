@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QLabel, QFileDialog, QMessageBox
 )
 from PyQt5.QtCore import pyqtSignal
-from recording_thread import RecordingThread # Assuming this import
+from .recording_thread import RecordingThread # Assuming this import
 
 class RecorderWindow(QDialog):
     # Signal emitted when the window is closed, to allow parent to clean up
