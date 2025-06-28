@@ -22,7 +22,6 @@ class RecorderWindow(QDialog):
         self._recording_thread.recording_status_changed.connect(self.update_button_states)
 
         self.init_ui()
-        print(f"RecorderWindow init: Calling update_button_states with initial state. Is recording: {self._recording_thread.is_recording()}, Is paused: {self._recording_thread.is_paused()}")
         self.update_button_states(self._recording_thread.is_recording(), self._recording_thread.is_paused())
 
     def init_ui(self):

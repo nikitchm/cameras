@@ -34,7 +34,7 @@ from .plugins.plugin_interface import ExtraPlugin
 
 # --- Conditional import for SharedMemoryFrameSender ---
 try:
-    from shared_memory_sender import SharedMemoryFrameSender
+    from .utils.shared_memory_sender import SharedMemoryFrameSender
     _SHARED_MEMORY_IMPORTS_SUCCESSFUL = True
     SHARED_MEM_NAME = "CameraFrameMMF"
     SHARED_MUTEX_NAME = "CameraFrameMutex"
@@ -358,7 +358,6 @@ class CameraViewer(QMainWindow): #QDialog):
 
         # Initialize all extra plugins with the actual camera properties
         for plugin in self.extra_plugins:
-            print(f"____ actual props: {actual_props}")
             plugin.init_plugin(actual_props)
 
 
@@ -525,7 +524,6 @@ class CameraViewer(QMainWindow): #QDialog):
 
     def closeEvent(self, event):
         """Handles the main window closing event, ensuring all threads and resources are stopped."""
-        print("Closing application. Stopping threads...")
         
         if self.camera_thread:
             self.camera_thread.stop()

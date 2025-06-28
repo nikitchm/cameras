@@ -1,16 +1,26 @@
 import cv2
 import numpy as np
-from ..camera_interface import CameraGrabberInterface, CameraProperties
 from typing import List, Tuple, Union
+from ..camera_interface import CameraGrabberInterface, CameraProperties
+from ...utils.StderrSuppressor import StderrSuppressor
+
+
+def printm(s: str):
+    print(f"Opencv frame grabber: {s}")
+
 
 class OpenCVCapture(CameraGrabberInterface):
     """
     Implements CameraGrabberInterface using OpenCV's VideoCapture.
     Handles camera opening, frame grabbing, and property setting.
     """
-    def __init__(self):
+    def __init__(self, detection_max_consecutive_failures=1):
+        """
+        detection_max_consecutive_failures : Stop after this many consecutive failed attempts
+        """
         self.cap: Union[cv2.VideoCapture, None] = None
         self._camera_index: int = -1
+        self._detection_max_consecutive_failures = detection_max_consecutive_failures
 
     def open(self, camera_index: int, desired_props: CameraProperties = None) -> CameraProperties:
         """
@@ -27,19 +37,18 @@ class OpenCVCapture(CameraGrabberInterface):
 
         actual_props = CameraProperties(0, 0, 0, 0, 0.0, -1) # Default empty properties
 
-        # FIX: Try opening with CAP_DSHOW backend first
-        print(f"OpenCVCapture: Attempting to open camera {camera_index} with CAP_DSHOW backend.")
+        printm(f"OpenCVCapture: Attempting to open camera {camera_index} with CAP_DSHOW backend.")
         self.cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
 
         if not self.cap.isOpened():
-            print(f"OpenCVCapture: CAP_DSHOW failed for camera {camera_index}. Trying CAP_MSMF backend.")
+            printm(f"OpenCVCapture: CAP_DSHOW failed for camera {camera_index}. Trying CAP_MSMF backend.")
             # Fallback to MSMF if DSHOW fails
             if self.cap: # Ensure it's not None from previous failed attempt
                 self.cap.release()
             self.cap = cv2.VideoCapture(camera_index, cv2.CAP_MSMF)
 
         if self.cap.isOpened():
-            print(f"OpenCVCapture: Camera {camera_index} opened successfully.")
+            printm(f"OpenCVCapture: Camera {camera_index} opened successfully.")
             # Apply desired properties
             if desired_props:
                 if desired_props.width > 0:
@@ -63,9 +72,9 @@ class OpenCVCapture(CameraGrabberInterface):
 
             actual_props = CameraProperties(width=actual_width,height=actual_height, offsetX=0, offsetY=0, 
                                             fps=actual_fps, brightness=actual_brightness)
-            print(f"OpenCVCapture: Actual Props: {actual_props}")
+            printm(f"OpenCVCapture: Actual Props: {actual_props}")
         else:
-            print(f"OpenCVCapture: Failed to open camera {camera_index} with any backend.")
+            printm(f"OpenCVCapture: Failed to open camera {camera_index} with any backend.")
             self.release() # Ensure release if opening failed
             
         return actual_props
@@ -76,7 +85,7 @@ class OpenCVCapture(CameraGrabberInterface):
             ret, frame = self.cap.read()
             if ret:
                 return frame
-            print(f"OpenCVCapture: Failed to read frame from camera {self._camera_index}.")
+            printm(f"OpenCVCapture: Failed to read frame from camera {self._camera_index}.")
         return None
 
     def release(self):
@@ -84,7 +93,7 @@ class OpenCVCapture(CameraGrabberInterface):
         if self.cap:
             self.cap.release()
             self.cap = None
-            print(f"OpenCVCapture: Camera {self._camera_index} released.")
+            printm(f"OpenCVCapture: Camera {self._camera_index} released.")
 
     def is_opened(self) -> bool:
         """Checks if the camera is currently opened."""
@@ -111,57 +120,60 @@ class OpenCVCapture(CameraGrabberInterface):
         detected_camera_names = []
         max_cameras_to_check = 10 # Still keep a reasonable upper bound for detection
         consecutive_failures = 0
-        max_consecutive_failures = 3 # Stop after this many consecutive failed attempts
 
-        print("Detecting cameras...")
-        for i in range(max_cameras_to_check):
-            cap = None
-            is_opened_successfully_this_attempt = False
-            try:
-                # Try DSHOW first for detection (often more reliable for simple open/close checks)
-                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-                if cap.isOpened():
-                    detected_camera_names.append(f"Camera {i}") # Just add the number, backend preference is for 'open'
-                    # print(f"Detected Camera {i} using DSHOW (for detection).")
-                    is_opened_successfully_this_attempt = True
-                    consecutive_failures = 0 # Reset counter on success
-                    cap.release()
-                    continue # Move to next index if successful
-
-                # If DSHOW fails, try MSMF for detection
-                if cap: # Ensure release even if DSHOW failed
-                    cap.release()
-                cap = cv2.VideoCapture(i, cv2.CAP_MSMF)
-                if cap.isOpened():
-                    detected_camera_names.append(f"Camera {i}") # Just add the number
-                    # print(f"Detected Camera {i} using MSMF (for detection).")
-                    is_opened_successfully_this_attempt = True
-                    consecutive_failures = 0 # Reset counter on success
-                    cap.release()
-                else:
-                    # Both DSHOW and MSMF failed for this index
-                    consecutive_failures += 1 # Increment failure counter
-                    if cap: # Ensure release if MSMF also failed
+        # Try/except different camera indexes.
+        # While this way we can look for cameras, the underlying opencv c++ library will print errors into stderr which aren't
+        # suppressed by the try/except mechanics. So, we temporary suppress stderr output, and it's restored at the end of the with block.
+        with StderrSuppressor():
+            printm(f"Testing camera indexes up to {self._detection_max_consecutive_failures} consecutive failures...")
+            for i in range(max_cameras_to_check):
+                cap = None
+                is_opened_successfully_this_attempt = False
+                try:
+                    # printm(f'++++++++++Trying DSHOW cam {i}...')
+                    # Try DSHOW first for detection (often more reliable for simple open/close checks)
+                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                    if cap.isOpened():
+                        detected_camera_names.append(f"Camera {i}") # Just add the number, backend preference is for 'open'
+                        printm(f"Detected Camera {i} using DSHOW (for detection).")
+                        is_opened_successfully_this_attempt = True
+                        consecutive_failures = 0 # Reset counter on success
                         cap.release()
+                        continue # Move to next index if successful
 
-            except cv2.error as e:
-                # print(f"Warning: OpenCV error during camera detection for index {i}: {e}")
-                consecutive_failures += 1 # Increment failure counter
-                if cap:
-                    cap.release()
-            except Exception as e:
-                # print(f"Warning: General error during camera detection for index {i}: {e}")
-                consecutive_failures += 1 # Increment failure counter
-                if cap:
-                    cap.release()
-            finally:
-                # Ensure any remaining unreleased cap is handled
-                if cap and not is_opened_successfully_this_attempt:
-                    cap.release()
+                    # If DSHOW fails, try MSMF for detection
+                    if cap: # Ensure release even if DSHOW failed
+                        cap.release()
+                    cap = cv2.VideoCapture(i, cv2.CAP_MSMF)
+                    if cap.isOpened():
+                        detected_camera_names.append(f"Camera {i}") # Just add the number
+                        printm(f"Detected Camera {i} using MSMF (for detection).")
+                        is_opened_successfully_this_attempt = True
+                        consecutive_failures = 0 # Reset counter on success
+                        cap.release()
+                    else:
+                        # Both DSHOW and MSMF failed for this index
+                        consecutive_failures += 1 # Increment failure counter
+                        if cap: # Ensure release if MSMF also failed
+                            cap.release()
 
-            if consecutive_failures >= max_consecutive_failures:
-                print(f"Stopping camera detection after {max_consecutive_failures} consecutive failures.")
-                break # Break the loop if too many failures
+                except cv2.error as e:
+                    # printm(f"Warning: OpenCV error during camera detection for index {i}: {e}")
+                    consecutive_failures += 1 # Increment failure counter
+                    if cap:
+                        cap.release()
+                except Exception as e:
+                    # printm(f"Warning: General error during camera detection for index {i}: {e}")
+                    consecutive_failures += 1 # Increment failure counter
+                    if cap:
+                        cap.release()
+                finally:
+                    # Ensure any remaining unreleased cap is handled
+                    if cap and not is_opened_successfully_this_attempt:
+                        cap.release()
+                
+                if consecutive_failures >= self._detection_max_consecutive_failures:
+                    break # Break the loop if too many failures
 
-        print("Camera detection complete.")
+        # printm("Camera detection complete.")
         return detected_camera_names
