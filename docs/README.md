@@ -4,15 +4,17 @@ At the moment, the GUI implementation is done with PyQt5 due to the fact that th
 
 
 ### Example for starting the camera GUI:
-The application includes relative imports which require treating the whole thing as a package. Assuming the conda environment for the cameras called `camera_software` has been already created:\
+The application includes relative imports which require treating the whole thing as a package. Assuming the conda environment for the cameras called `cameras` has been already created:\
 * Method 1. Run\
 `run_camera_app.bat`
 * Method 2.
     * `cd` to the parent folder of the `cameras` package
-    * `conda run -n camera_software python -m cameras`\
+    * `conda run -n cameras python -m cameras`\
     OR
-    * `conda activate camera_software`\
+    * `conda activate cameras`\
     `python -m camera_gui.py`
+* The software can be started with parameters:
+    `python -m camera_gui.py --grabber pycapture2 --width=640 --height=640 --mode=0 --fps=90 --offsetX=500 --offsetY=500`
 
 
 
