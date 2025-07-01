@@ -22,7 +22,7 @@ class CameraGrabberInterface(abc.ABC):
         self._actual_camera_properties: Optional[CameraProperties] = None # Using Optional for clarity
 
     @abc.abstractmethod
-    def detect_cameras(self) -> List[str]: # --- Changed list[str] to List[str] ---
+    def detect_cameras(self) -> List[str]:
         """
         Detects available cameras and returns a list of their identifiers.
         E.g., ["Camera 0", "Camera 1"] for OpenCV, or unique names for PyCapture2.

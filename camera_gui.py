@@ -50,6 +50,7 @@ class Grabber:
     class KNOWN_GRABBERS:
         OPENCV = "opencv"
         PyCapture2 = "pycapture2"
+
     name: KNOWN_GRABBERS
     cls: Type[CameraGrabberInterface] # Use Type for class reference
     cam_settings_wnd: Type[QDialog] # Use Type for class reference
@@ -271,7 +272,10 @@ class CameraViewer(QMainWindow): #QDialog):
         self.camera_selector.clear()
         
         if self.available_cameras:
-            self.camera_selector.addItems(self.available_cameras)
+            # available_sources = self.available_cameras.copy()
+            # available_sources.insert(0, 'file')
+            # # self.camera_selector.addItems(self.available_cameras)
+            # self.camera_selector.addItems(available_sources)
             
             initial_selection_made = False
             if self._current_camera_index != -1:
@@ -364,7 +368,8 @@ class CameraViewer(QMainWindow): #QDialog):
     def switch_camera(self):
         """Switch to the selected camera based on combobox selection."""
         selected_camera_text = self.camera_selector.currentText()
-        if selected_camera_text and "No cameras found" not in selected_camera_text:
+        # print(f'__________{selected_camera_text}')
+        if selected_camera_text: # and "No cameras found" not in selected_camera_text:  # file is always in the selector now
             camera_index = -1
             if self._frame_grabber.name == Grabber.KNOWN_GRABBERS.OPENCV:
                 try:
@@ -546,6 +551,9 @@ class CameraViewer(QMainWindow): #QDialog):
 
 
 def main():
+    """
+    For example: python -m cameras --grabber pycapture2 --width=640 --height=640 --mode=0 --fps=90 --offsetX=500 --offsetY=500
+    """
     parser = argparse.ArgumentParser(description="Camera Viewer Application")
     parser.add_argument(
         "--grabber",
@@ -570,10 +578,9 @@ def main():
         help=f"Choose the mode of acquisition (should be supported by the camera).")
     parser.add_argument("--enable-recorder", action="store_true", default=True,
         help="Enable the video recording plugin.")
-    parser.add_argument("--enable-analysis", action="store_true", default=True,
-        help="Enable the tail tracking plugin.")
-
-
+    parser.add_argument("--enable-gulping", action="store_true", default=False,
+        help="Enable the zebrafish gulping tracking plugin.")
+    
     args = parser.parse_args()
 
     print(args)
@@ -615,7 +622,7 @@ def main():
     if args.enable_recorder:
         from .plugins.video_recorder.recorder_plugin import RecorderPlugin
         enabled_plugins.append(RecorderPlugin())
-    if args.enable_analysis:
+    if args.enable_gulping:
         from .plugins.tail_tracking.tail_tracking_plugin import TailTrackingPlugin
         enabled_plugins.append(TailTrackingPlugin())
 

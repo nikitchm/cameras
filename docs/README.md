@@ -1,9 +1,17 @@
-This repository includes implementation of the frame grabbers for different cameras, as well as modules for visualization, recording and other processing of the grabbed images.
+This repository offers a versatile software solution for image frame acquisition from various sources (frame grabbers, files, ZMQ inputs). It then facilitates frame sharing through Python's multithreading and multiprocessing, imagem tools, MMS Windows, and ZMQ. Fianlly, it provides an expandable plugin system for presenting and analyzing the acquired frames. In addition, it works as the Module Conductor (MC) module.
 
-At the moment, the GUI implementation is done with PyQt5 due to the fact that the last provided pycapture2 implmenetation is for python 3.6, and I couldn't resolve the conda environment for python 3.6, PyQt6, pycapture2, and opencv at the same time.
+![frame-grabber_software_parts_doodle](rss/frame-grabber_software_parts_doodle.jpg)
+
+### Supported modes
+* **Sources**: opencv cameras/files, tiff files, pycapture2 cameras (FLIR), PCO cameras, SVS cameras
+* **Frame sharing**: Python's multithreading/multiprocessing, imagem, MMS, ZMQ
+* **Plugins** : frame viewer, video recorder, zebrafish gulping, zebrafish heart rate
 
 
-### Example for starting the camera GUI:
+Note that, at the moment, the GUI implementation is done with PyQt5 due to the fact that the last provided pycapture2 implmenetation is for python 3.6, and I couldn't resolve the conda environment for python 3.6, PyQt6, pycapture2, and opencv at the same time.
+
+
+### Some ways for starting the camera GUI:
 The application includes relative imports which require treating the whole thing as a package. Assuming the conda environment for the cameras called `cameras` has been already created:\
 * Method 1. Run\
 `run_camera_app.bat`
@@ -12,9 +20,10 @@ The application includes relative imports which require treating the whole thing
     * `conda run -n cameras python -m cameras`\
     OR
     * `conda activate cameras`\
-    `python -m camera_gui.py`
-* The software can be started with parameters:
-    `python -m camera_gui.py --grabber pycapture2 --width=640 --height=640 --mode=0 --fps=90 --offsetX=500 --offsetY=500`
+    cd to the parent folder of cameras\
+    `python -m cameras`
+* The software can be started with parameters (with the same preparation as above):
+    `python -m cameras --grabber pycapture2 --width=640 --height=640 --mode=0 --fps=90 --offsetX=500 --offsetY=500`
 
 
 
