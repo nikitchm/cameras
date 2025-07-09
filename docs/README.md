@@ -17,7 +17,8 @@ The application includes relative imports which require treating the whole thing
 `run_camera_app.bat`
 * Method 2.
     * `cd` to the parent folder of the `cameras` package
-    * `conda run -n cameras python -m cameras`\
+    * `conda run -n cameras --no-capture-output python python -m cameras`\
+		`--no-capture-output`  option prevents conda from buffering the output and prints it into the console right away.
     OR
     * `conda activate cameras`\
     cd to the parent folder of cameras\

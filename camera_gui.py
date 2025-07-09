@@ -1,3 +1,7 @@
+# Main module in a python package for the control of frame grabbers and is responsible for the selection 
+# of the used frame grabber, mechanism of sharing data with other processes and selection of the plugin for
+# post-processing of the acquired frames.
+
 import sys
 if False:
     print(f"--- DIAGNOSTICS: camera_gui.py ---")
@@ -38,7 +42,7 @@ try:
     _SHARED_MEMORY_IMPORTS_SUCCESSFUL = True
     SHARED_MEM_NAME = "CameraFrameMMF"
     SHARED_MUTEX_NAME = "CameraFrameMutex"
-    DEFAULT_MAX_MMF_BUFFER_SIZE = 1920 * 1080 * 3
+    DEFAULT_MAX_MMF_BUFFER_SIZE = 2048 * 2048 * 3
 except ImportError as e:
     print(f"Warning: Shared Memory functionality disabled. Could not import pywin32 modules: {e}")
     print("Please ensure 'pywin32' is correctly installed and its DLLs are accessible.")
@@ -50,7 +54,7 @@ class Grabber:
     class KNOWN_GRABBERS:
         OPENCV = "opencv"
         PyCapture2 = "pycapture2"
-
+    # cls_name: KNOWN_GRABBERS
     name: KNOWN_GRABBERS
     cls: Type[CameraGrabberInterface] # Use Type for class reference
     cam_settings_wnd: Type[QDialog] # Use Type for class reference
@@ -63,12 +67,14 @@ class FrameAcquisitionThread(QThread):
     error_occurred = pyqtSignal(str)
     camera_initialized = pyqtSignal(CameraProperties)
 
-    def __init__(self, camera_grabber: CameraGrabberInterface, camera_index: int, desired_props: CameraProperties):
+    def __init__(self, camera_grabber: CameraGrabberInterface, camera_index: int, desired_props: CameraProperties,
+                 ms_sleep_bs_acquisitions: int=1):
         super().__init__()
         self._grabber = camera_grabber
         self._camera_index = camera_index
         self._desired_props = desired_props
         self._running = True
+        self.ms_sleep_bs_acquisitions = ms_sleep_bs_acquisitions
 
     def run(self):
         try:
@@ -86,7 +92,8 @@ class FrameAcquisitionThread(QThread):
                 else:
                     self.error_occurred.emit(f"Failed to grab frame from Camera {self._camera_index}.")
                     self._running = False
-                self.msleep(1) # Small delay to prevent 100% CPU usage
+                if self.ms_sleep_bs_acquisitions > 0:
+                    self.msleep(self.ms_sleep_bs_acquisitions) # Small delay to prevent 100% CPU usage
         except Exception as e:
             self.error_occurred.emit(f"An error occurred in acquisition thread: {e}")
             traceback.print_exc(file=sys.stdout)
@@ -102,7 +109,8 @@ class FrameAcquisitionThread(QThread):
 		# print(f"FrameAcquisitionThread for camera {self._grabber.name} stopped.")
 
 
-# --- Main GUI Class ---
+# Split into FrameGrabberManager and CameraViewer
+
 class CameraViewer(QMainWindow): #QDialog):
     def __init__(self, grabber: Type[Grabber], plugins: List[ExtraPlugin], parent=None):
         super().__init__(parent)
@@ -257,7 +265,6 @@ class CameraViewer(QMainWindow): #QDialog):
             print(f"WARNING: Plugin '{plugin.get_name()}' get_ui_widget() returned {type(plugin_main_widget)}, "
                   f"not QPushButton. Cannot simulate click.")
 
-
     def detect_and_populate_cameras(self):
         temp_grabber = self._frame_grabber.cls()
 
@@ -276,6 +283,7 @@ class CameraViewer(QMainWindow): #QDialog):
             # available_sources.insert(0, 'file')
             # # self.camera_selector.addItems(self.available_cameras)
             # self.camera_selector.addItems(available_sources)
+            self.camera_selector.addItems(self.available_cameras)
             
             initial_selection_made = False
             if self._current_camera_index != -1:
@@ -364,12 +372,11 @@ class CameraViewer(QMainWindow): #QDialog):
         for plugin in self.extra_plugins:
             plugin.init_plugin(actual_props)
 
-
     def switch_camera(self):
         """Switch to the selected camera based on combobox selection."""
         selected_camera_text = self.camera_selector.currentText()
         # print(f'__________{selected_camera_text}')
-        if selected_camera_text: # and "No cameras found" not in selected_camera_text:  # file is always in the selector now
+        if selected_camera_text and "No cameras found" not in selected_camera_text:  # file is always in the selector now
             camera_index = -1
             if self._frame_grabber.name == Grabber.KNOWN_GRABBERS.OPENCV:
                 try:
@@ -404,6 +411,7 @@ class CameraViewer(QMainWindow): #QDialog):
     def _on_frame_ready(self, frame: np.ndarray):
         """Convert frame and display in QLabel, also pass to active plugins."""
         if self._actual_camera_properties:
+            # Set 
             q_image = self.convert_cv_qt(frame)
             self.label.setPixmap(QPixmap.fromImage(q_image))
 
@@ -553,6 +561,7 @@ class CameraViewer(QMainWindow): #QDialog):
 def main():
     """
     For example: python -m cameras --grabber pycapture2 --width=640 --height=640 --mode=0 --fps=90 --offsetX=500 --offsetY=500
+    
     """
     parser = argparse.ArgumentParser(description="Camera Viewer Application")
     parser.add_argument(
@@ -562,6 +571,12 @@ def main():
         default=Grabber.KNOWN_GRABBERS.OPENCV,
         help=f"Choose camera grabber backend: '{Grabber.KNOWN_GRABBERS.OPENCV}' (default) or '{Grabber.KNOWN_GRABBERS.PyCapture2}'"
     )
+    parser.add_argument("--cameras_to_detect", default="opencv",
+        help="Specify camera types (frame grabbers) or specific cameras to look for.")
+    parser.add_argument("--source_to_start", default="",
+        help=f"Choose the source to start along with the desired parameters of the source")
+    parser.add_argument("--config_file", default="",
+        help=f"The path to the config file")
     parser.add_argument("--width", type=int, default=640,
         help=f"Choose the width of the image to grab (should be supported by the camera)")
     parser.add_argument("--height", type=int, default=480,
@@ -591,7 +606,7 @@ def main():
         from .grabbers.pycapture2.camera_settings_gui import SettingsWindow
         grabber_config = Grabber(name=Grabber.KNOWN_GRABBERS.PyCapture2, cls=PyCapture2Grabber, cam_settings_wnd=SettingsWindow,
                           settings=CameraProperties(width=args.width,
-                                                    height=args.height,
+                                                     height=args.height,
                                                     fps=args.fps,
                                                     brightness=-1,
                                                     offsetX=args.offsetX,
