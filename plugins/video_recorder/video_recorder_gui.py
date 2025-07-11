@@ -4,7 +4,7 @@ import os
 # Changed from PyQt6 to PyQt5 imports
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit,
-    QLabel, QFileDialog, QMessageBox
+    QLabel, QFileDialog, QMessageBox, QCheckBox
 )
 from PyQt5.QtCore import pyqtSignal
 from .recording_thread import RecordingThread # Assuming this import
@@ -35,6 +35,10 @@ class RecorderWindow(QDialog):
         file_path_layout.addWidget(self.file_path_edit)
         file_path_layout.addWidget(self.browse_button)
         main_layout.addLayout(file_path_layout)
+
+        self.timestamps_checkbox = QCheckBox("Create file with timestamps")
+        self.timestamps_checkbox.setChecked(True) # Optional: set initial state
+        main_layout.addWidget(self.timestamps_checkbox)
 
         # Control Buttons
         control_buttons_layout = QHBoxLayout()
@@ -74,7 +78,7 @@ class RecorderWindow(QDialog):
 
         if self._recording_thread:
             if not self._recording_thread.is_recording():
-                if self._recording_thread.start_recording(file_path):
+                if self._recording_thread.start_recording(file_path, save_timestamps_in_separate_file=self.timestamps_checkbox.isChecked()):
                     self.status_label.setText(f"Recording: {os.path.basename(file_path)}")
                 else:
                     QMessageBox.critical(self, "Error", "Failed to start recording.")

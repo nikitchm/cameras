@@ -3,6 +3,7 @@ import numpy as np
 import time
 import os
 import collections
+from ...utils.timestamp_writer import TimestampWriter
 
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QWaitCondition
 
@@ -14,8 +15,9 @@ class RecordingThread(QThread):
     recording_status_changed = pyqtSignal(bool, bool) # is_recording, is_paused
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, save_timestamps_in_separate_file: bool=True):
         super().__init__(parent)
+        self.save_timestamps_in_separate_file = save_timestamps_in_separate_file
         self._is_recording = False
         self._is_paused = False
         self._frame_queue = collections.deque()
@@ -30,6 +32,7 @@ class RecordingThread(QThread):
         self._pause_time = 0
         self._elapsed_paused_time = 0
 
+
     def set_video_properties(self, width: int, height: int, fps: float):
         self._mutex.lock()
         self._width = width
@@ -41,7 +44,10 @@ class RecordingThread(QThread):
     def is_video_properties_set(self) -> bool:
         return self._width > 0 and self._height > 0 and self._fps > 0
 
-    def start_recording(self, output_path: str) -> bool:
+    def start_recording(self, output_path: str, save_timestamps_in_separate_file: bool=None) -> bool:
+        if save_timestamps_in_separate_file is not None:
+            self.save_timestamps_in_separate_file = save_timestamps_in_separate_file
+
         self._mutex.lock()
         if self._is_recording:
             self._mutex.unlock()
@@ -68,6 +74,10 @@ class RecordingThread(QThread):
             )
             if not self._video_writer.isOpened():
                 raise IOError(f"VideoWriter could not be opened for path: {output_path}. Check codec support or path.")
+            else:
+                if self.save_timestamps_in_separate_file:
+                    base_name, _ = os.path.splitext(self._output_path)
+                    self._timestamp_writer = TimestampWriter(file_path=base_name+'.txt', format_string="%Y-%m-%d %H:%M:%S.%f")
         except Exception as e:
             self._mutex.unlock()
             self.error_occurred.emit(f"Failed to initialize video writer: {e}")
@@ -171,11 +181,15 @@ class RecordingThread(QThread):
                 break # Exit thread cleanly
 
             if self._frame_queue:
-                frame = self._frame_queue.popleft()
+                frame_package = self._frame_queue.popleft()
+                frame = frame_package['frame']
+                timestamp = frame_package['timestamp']
                 self._mutex.unlock() # Release mutex while writing frame (can be time-consuming)
                 if self._video_writer and self._video_writer.isOpened():
                     try:
                         self._video_writer.write(frame)
+                        if self.save_timestamps_in_separate_file:
+                            self._timestamp_writer.write(timestamp)
                     except Exception as e:
                         self.error_occurred.emit(f"Error writing frame to video file: {e}")
                         self.stop_recording() # Attempt to stop on error
@@ -191,6 +205,10 @@ class RecordingThread(QThread):
                 self._video_writer.release()
                 printm("Video writer released.")
             self._video_writer = None
+            try:
+                self._timestamp_writer.close()
+            except Exception as e:
+                pass
 
     def __del__(self):
         self.wait() # Ensure the thread finishes its execution

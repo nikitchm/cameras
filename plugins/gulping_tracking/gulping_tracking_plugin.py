@@ -5,7 +5,7 @@ from PyQt5.QtCore import QObject
 
 from ..grabbers.camera_interface import CameraProperties 
 
-class ExtraPlugin(QObject):
+class FrameProcessingPlugin(QObject):
     """
     Abstract base class for all extra plugins that can process camera frames.
     """

@@ -3,6 +3,7 @@ import numpy as np
 from typing import List, Tuple, Union
 from ..camera_interface import CameraGrabberInterface, CameraProperties
 from ...utils.StderrSuppressor import StderrSuppressor
+from datetime import datetime
 
 
 def printm(s: str):
@@ -22,12 +23,13 @@ class OpenCVCapture(CameraGrabberInterface):
         self._camera_index: int = -1
         self._detection_max_consecutive_failures = detection_max_consecutive_failures
 
-    def open(self, camera_index: int, desired_props: CameraProperties = None) -> CameraProperties:
+    def open(self, camera_index: Union[int, str], desired_props: CameraProperties = None) -> CameraProperties:
         """
         Opens the camera specified by index with desired properties.
         Attempts to use DSHOW backend first, then falls back to MSMF.
         Returns the actual properties the camera was opened with.
         """
+        camera_index = int(camera_index)    # ensure it's int
         self._camera_index = camera_index
         
         # Release any previously opened camera
@@ -35,7 +37,7 @@ class OpenCVCapture(CameraGrabberInterface):
             self.cap.release()
             self.cap = None
 
-        actual_props = CameraProperties(0, 0, 0, 0, 0.0, -1) # Default empty properties
+        actual_props = CameraProperties() # Default empty properties
 
         printm(f"OpenCVCapture: Attempting to open camera {camera_index} with CAP_DSHOW backend.")
         self.cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
@@ -83,8 +85,9 @@ class OpenCVCapture(CameraGrabberInterface):
         """Grabs a single frame from the camera."""
         if self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
+            current_time = datetime.now()
             if ret:
-                return frame
+                return {'frame':frame, 'timestamp': current_time}
             printm(f"OpenCVCapture: Failed to read frame from camera {self._camera_index}.")
         return None
 
@@ -134,7 +137,7 @@ class OpenCVCapture(CameraGrabberInterface):
                     # Try DSHOW first for detection (often more reliable for simple open/close checks)
                     cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
                     if cap.isOpened():
-                        detected_camera_names.append(f"Camera {i}") # Just add the number, backend preference is for 'open'
+                        detected_camera_names.append(f"{i}") # Just add the number, backend preference is for 'open'
                         printm(f"Detected Camera {i} using DSHOW (for detection).")
                         is_opened_successfully_this_attempt = True
                         consecutive_failures = 0 # Reset counter on success
@@ -146,7 +149,7 @@ class OpenCVCapture(CameraGrabberInterface):
                         cap.release()
                     cap = cv2.VideoCapture(i, cv2.CAP_MSMF)
                     if cap.isOpened():
-                        detected_camera_names.append(f"Camera {i}") # Just add the number
+                        detected_camera_names.append(f"{i}") # Just add the number
                         printm(f"Detected Camera {i} using MSMF (for detection).")
                         is_opened_successfully_this_attempt = True
                         consecutive_failures = 0 # Reset counter on success

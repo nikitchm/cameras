@@ -2,14 +2,15 @@ import abc
 import dataclasses
 # --- Added List from typing module ---
 from typing import List, Union, Optional, Dict
+import numpy as np
 
 
 @dataclasses.dataclass
 class CameraProperties:
-    width: int
-    height: int
-    fps: float
-    brightness: int # Using -1 to indicate not supported or not set for brightness
+    width: int = 0
+    height: int = 0
+    fps: float = 0
+    brightness: int = 0 # Using -1 to indicate not supported or not set for brightness
     offsetX : int = 0
     offsetY : int = 0
     other : Dict[str, str] = dataclasses.field(default_factory=dict)
@@ -30,7 +31,7 @@ class CameraGrabberInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def open(self, index: int, desired_props: CameraProperties) -> CameraProperties:
+    def open(self, index: str, desired_props: CameraProperties) -> CameraProperties:
         """
         Opens the camera at the given index with desired properties and
         returns the actual properties achieved by the camera.
@@ -43,10 +44,11 @@ class CameraGrabberInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_frame(self) -> Union[None, 'numpy.ndarray']: # Type hint for numpy.ndarray
+    def get_frame(self) -> Union[None, dict]: # Type hint for np.ndarray
         """
         Grabs a single frame from the camera.
-        Returns a numpy array (image) or None if a frame cannot be grabbed.
+        Returns a dictionary containing the numpy array (image), timestamp, and anything else
+        (['frame':'np.ndarray', 'timestamp':'datetime.datetime']) or None if a frame cannot be grabbed.
         """
         pass
 

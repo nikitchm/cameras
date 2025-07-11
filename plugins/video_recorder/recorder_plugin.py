@@ -2,13 +2,13 @@ from PyQt5.QtWidgets import QPushButton, QMessageBox, QHBoxLayout, QWidget, QGro
 from PyQt5.QtCore import pyqtSignal, QObject
 import numpy as np
 
-from ..plugin_interface import ExtraPlugin
+from ..plugin_interface import FrameProcessingPlugin
 from ...grabbers.camera_interface import CameraProperties
 from .recording_thread import RecordingThread
 from .video_recorder_gui import RecorderWindow
 
 
-class RecorderPlugin(ExtraPlugin):
+class RecorderPlugin(FrameProcessingPlugin):
     """
     An extra plugin for video recording.
     Encapsulates the RecordingThread and RecorderWindow.

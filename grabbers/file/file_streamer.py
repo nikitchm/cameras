@@ -34,7 +34,7 @@ class FileStreaming(CameraGrabberInterface):
             self.cap.release()
             self.cap = None
 
-        actual_props = CameraProperties(0, 0, 0, 0, 0.0, -1) # Default empty properties
+        actual_props = CameraProperties() # Default empty properties
 
         printm(f"OpenCVCapture: Attempting to open camera {camera_index} with CAP_DSHOW backend.")
         self.cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)

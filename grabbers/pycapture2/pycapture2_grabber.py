@@ -6,6 +6,7 @@ from enum import IntEnum
 # Assuming camera_interface.py and CameraProperties are available
 from ..camera_interface import CameraGrabberInterface, CameraProperties
 import sys, traceback
+from datetime import datetime
 
 
 def printm(s: str):
@@ -38,13 +39,14 @@ if _PYCAPTURE2_AVAILABLE:
             self._actual_props = CameraProperties(width=0, height=0, fps=0.0, brightness=-1)
             self.name = "" # name of the connected camera
 
-        def open(self, camera_index: int, desired_props: CameraProperties) -> CameraProperties:
+        def open(self, camera_index: Union[int, str], desired_props: CameraProperties) -> CameraProperties:
             """
             Initializes and opens the FLIR camera at the given index. If the index is larger than 1000, 
             it's treated as the camera's serial number.
             Attempts to set desired properties (width, height, fps, brightness).
             Returns the actual properties the camera was initialized with.
             """
+            camera_index = int(camera_index)    # ensure it's int
             self.release() # Ensure any previous camera is released
             try:
                 if camera_index > 1000:
@@ -177,12 +179,12 @@ if _PYCAPTURE2_AVAILABLE:
                 printm(f"PyCapture2Grabber Error (Fc2error): {e}")
                 traceback.print_exc(file=sys.stdout)
                 self.release()
-                return CameraProperties(0, 0, 0, 0, 0.0, -1)
+                return CameraProperties()
             except Exception as e:
                 printm(f"PyCapture2Grabber Error (General): {e}")
                 traceback.print_exc(file=sys.stdout)
                 self.release()
-                return CameraProperties(0, 0, 0, 0, 0.0, -1)
+                return CameraProperties()
 
         def get_frame(self) -> Union[np.ndarray, None]:
             """
@@ -192,6 +194,7 @@ if _PYCAPTURE2_AVAILABLE:
             if self.cam and self.is_opened():
                 try:
                     image = self.cam.retrieveBuffer()
+                    current_time = datetime.now()
                     
                     # Convert to BGR format using PyCapture2's internal conversion.
                     converted_image = image.convert(fc2.PIXEL_FORMAT.BGR)
@@ -213,8 +216,8 @@ if _PYCAPTURE2_AVAILABLE:
                     if frame.shape[1] != self._actual_props.width or frame.shape[0] != self._actual_props.height:
                         printm(f"PyCapture2Grabber Warning: Frame dimensions ({frame.shape[1]}x{frame.shape[0]}) mismatch actual properties ({self._actual_props.width}x{self._actual_props.height}). Auto-resizing for consistency.")
                         frame = cv2.resize(frame, (self._actual_props.width, self._actual_props.height))
-
-                    return frame
+                    
+                    return {'frame':frame, 'timestamp': current_time}
 
                 except fc2.Fc2error as e:
                     printm(f"PyCapture2Grabber Error retrieving frame: {e}")
@@ -340,7 +343,8 @@ if _PYCAPTURE2_AVAILABLE:
                         cam.connect(pgrGuid)
                         camera_info = cam.getCameraInfo()
                         name = f"{camera_info.vendorName} {camera_info.modelName} (SN: {camera_info.serialNumber})"
-                        detected_camera_names.append(name)
+                        # detected_camera_names.append(name)
+                        detected_camera_names.append(f"{camera_info.serialNumber}")
                         printm(f"Found: {name}")
                     except fc2.Fc2error as e:
                         printm(f"Could not connect to camera at index {i}: {e}")
