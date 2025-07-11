@@ -270,6 +270,7 @@ class CameraViewer(QMainWindow):
             self.camera_selector.addItems(src_names)
             self._current_src_index = 1
             self.camera_selector.setCurrentIndex(self._current_src_index)
+            self.camera_selector.currentIndexChanged.connect(self.switch_source)
             self.switch_source()
         else:
             self.camera_selector.addItem("No cameras found")
@@ -351,6 +352,7 @@ class CameraViewer(QMainWindow):
 
     def switch_source(self):
         """Switch to the selected source based on combobox selection."""
+        print(f"'''''''''''''''''''''''switching sources")
         try:
             self._current_src = self.available_sources[self.camera_selector.currentIndex()]
             self.start_camera() 
