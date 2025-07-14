@@ -1,178 +1,161 @@
 import cv2
+import os
+import sys
+import datetime
 import numpy as np
-from typing import List, Tuple, Union
+import traceback
+from typing import List, Union, Optional, Dict
 from ..camera_interface import CameraGrabberInterface, CameraProperties
-from ...utils.StderrSuppressor import StderrSuppressor
 
+class CameraGrabberInterface(CameraGrabberInterface):
+    def __init__(self):
+        self._is_opened = False
+        self._actual_camera_properties: Optional[CameraProperties] = None
 
-def printm(s: str):
-    print(f"Opencv frame grabber: {s}")
-
-
+# OpenCVVideoGrabber
 class FileStreaming(CameraGrabberInterface):
-    """
-    Implements CameraGrabberInterface using File Streaming.
-    """
-    def __init__(self, detection_max_consecutive_failures=1):
-        """
-        detection_max_consecutive_failures : Stop after this many consecutive failed attempts
-        """
-        self.cap: Union[cv2.VideoCapture, None] = None
-        self._camera_index: int = -1
-        self._detection_max_consecutive_failures = detection_max_consecutive_failures
-
-    def open(self, camera_index: int, desired_props: CameraProperties = None) -> CameraProperties:
-        """
-        Opens the camera specified by index with desired properties.
-        Attempts to use DSHOW backend first, then falls back to MSMF.
-        Returns the actual properties the camera was opened with.
-        """
-        self._camera_index = camera_index
-        
-        # Release any previously opened camera
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
-            self.cap = None
-
-        actual_props = CameraProperties() # Default empty properties
-
-        printm(f"OpenCVCapture: Attempting to open camera {camera_index} with CAP_DSHOW backend.")
-        self.cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-
-        if not self.cap.isOpened():
-            printm(f"OpenCVCapture: CAP_DSHOW failed for camera {camera_index}. Trying CAP_MSMF backend.")
-            # Fallback to MSMF if DSHOW fails
-            if self.cap: # Ensure it's not None from previous failed attempt
-                self.cap.release()
-            self.cap = cv2.VideoCapture(camera_index, cv2.CAP_MSMF)
-
-        if self.cap.isOpened():
-            printm(f"OpenCVCapture: Camera {camera_index} opened successfully.")
-            # Apply desired properties
-            if desired_props:
-                if desired_props.width > 0:
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, desired_props.width)
-                if desired_props.height > 0:
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, desired_props.height)
-                if desired_props.fps > 0:
-                    self.cap.set(cv2.CAP_PROP_FPS, desired_props.fps)
-                if desired_props.brightness != -1:
-                    self.cap.set(cv2.CAP_PROP_BRIGHTNESS, desired_props.brightness)
-
-            # Get actual properties after opening and setting
-            actual_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
-            actual_brightness = int(self.cap.get(cv2.CAP_PROP_BRIGHTNESS))
-
-            # Handle cases where FPS might be reported as 0.0
-            if actual_fps == 0.0:
-                actual_fps = desired_props.fps if desired_props.fps > 0 else 30.0 # Default to 30 if still 0 or unset
-
-            actual_props = CameraProperties(width=actual_width,height=actual_height, offsetX=0, offsetY=0, 
-                                            fps=actual_fps, brightness=actual_brightness)
-            printm(f"OpenCVCapture: Actual Props: {actual_props}")
-        else:
-            printm(f"OpenCVCapture: Failed to open camera {camera_index} with any backend.")
-            self.release() # Ensure release if opening failed
-            
-        return actual_props
-
-    def get_frame(self) -> Union[np.ndarray, None]:
-        """Grabs a single frame from the camera."""
-        if self.cap and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if ret:
-                return frame
-            printm(f"OpenCVCapture: Failed to read frame from camera {self._camera_index}.")
-        return None
-
-    def release(self):
-        """Releases the camera resource."""
-        if self.cap:
-            self.cap.release()
-            self.cap = None
-            printm(f"OpenCVCapture: Camera {self._camera_index} released.")
-
-    def is_opened(self) -> bool:
-        """Checks if the camera is currently opened."""
-        return self.cap is not None and self.cap.isOpened()
-
-    def get_property(self, prop_id: int) -> Union[float, None]:
-        """Gets a camera property by its ID."""
-        if self.cap and self.cap.isOpened():
-            return self.cap.get(prop_id)
-        return None
-
-    def set_property(self, prop_id: int, value: Union[int, float]) -> bool:
-        """Sets a camera property by its ID."""
-        if self.cap and self.cap.isOpened():
-            return self.cap.set(prop_id, value)
-        return False
+    def __init__(self):
+        super().__init__()
+        self._video_capture: Optional[cv2.VideoCapture] = None
+        self._video_path: Optional[str] = None
 
     def detect_cameras(self) -> List[str]:
         """
-        Detects available cameras and returns a list of their names (e.g., "Camera 0").
-        Prioritizes DSHOW for detection for robustness, then MSMF.
-        Stops early on consecutive failures.
+        For video files, this method would typically just return a placeholder or
+        expect the video path to be known beforehand. We'll return an empty list
+        as we don't 'detect' video files in the same way we detect cameras.
         """
-        detected_camera_names = []
-        max_cameras_to_check = 10 # Still keep a reasonable upper bound for detection
-        consecutive_failures = 0
+        print("Note: detect_cameras is not applicable for video file grabbers.")
+        return []
 
-        # Try/except different camera indexes.
-        # While this way we can look for cameras, the underlying opencv c++ library will print errors into stderr which aren't
-        # suppressed by the try/except mechanics. So, we temporary suppress stderr output, and it's restored at the end of the with block.
-        with StderrSuppressor():
-            printm(f"Testing camera indexes up to {self._detection_max_consecutive_failures} consecutive failures...")
-            for i in range(max_cameras_to_check):
-                cap = None
-                is_opened_successfully_this_attempt = False
-                try:
-                    # printm(f'++++++++++Trying DSHOW cam {i}...')
-                    # Try DSHOW first for detection (often more reliable for simple open/close checks)
-                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-                    if cap.isOpened():
-                        detected_camera_names.append(f"Camera {i}") # Just add the number, backend preference is for 'open'
-                        printm(f"Detected Camera {i} using DSHOW (for detection).")
-                        is_opened_successfully_this_attempt = True
-                        consecutive_failures = 0 # Reset counter on success
-                        cap.release()
-                        continue # Move to next index if successful
+    def open(self, video_path: str, desired_props: CameraProperties = CameraProperties()) -> CameraProperties:
+        """
+        Opens the video file specified by video_path.
+        try/except handling is supposed to be done in the calling script.
+        """
+        self._video_path = video_path
+        self._video_path = r"C:\Users\MaxD2b\Downloads\output.avi"
+        print(f"...... self._video_path: {self._video_path}, desired_props: {desired_props}")
+        if type(self._video_path) is not str:
+            raise TypeError(f"video_path argument must be a string. Provided: {self._video_path}")
+        if not os.path.exists(self._video_path):
+            # self.print(f"Error: Video file not found at {self._video_path}")
+            raise FileNotFoundError(f"Video file does not exist: {self._video_path}")
+        if not os.path.isfile(self._video_path):
+            # self.print(f"Error: Path is not a file: {self._video_path}")
+            raise IsADirectoryError(f"Path is a directory, not a file: {self._video_path}")
+        self._video_capture = cv2.VideoCapture(self._video_path)
+        if not self._video_capture.isOpened():
+            self._is_opened = False
+            self._actual_camera_properties = None
+            raise IOError(f"Could not open video file: {self._video_path}")
 
-                    # If DSHOW fails, try MSMF for detection
-                    if cap: # Ensure release even if DSHOW failed
-                        cap.release()
-                    cap = cv2.VideoCapture(i, cv2.CAP_MSMF)
-                    if cap.isOpened():
-                        detected_camera_names.append(f"Camera {i}") # Just add the number
-                        printm(f"Detected Camera {i} using MSMF (for detection).")
-                        is_opened_successfully_this_attempt = True
-                        consecutive_failures = 0 # Reset counter on success
-                        cap.release()
-                    else:
-                        # Both DSHOW and MSMF failed for this index
-                        consecutive_failures += 1 # Increment failure counter
-                        if cap: # Ensure release if MSMF also failed
-                            cap.release()
+        self._is_opened = True
 
-                except cv2.error as e:
-                    # printm(f"Warning: OpenCV error during camera detection for index {i}: {e}")
-                    consecutive_failures += 1 # Increment failure counter
-                    if cap:
-                        cap.release()
-                except Exception as e:
-                    # printm(f"Warning: General error during camera detection for index {i}: {e}")
-                    consecutive_failures += 1 # Increment failure counter
-                    if cap:
-                        cap.release()
-                finally:
-                    # Ensure any remaining unreleased cap is handled
-                    if cap and not is_opened_successfully_this_attempt:
-                        cap.release()
-                
-                if consecutive_failures >= self._detection_max_consecutive_failures:
-                    break # Break the loop if too many failures
+        # Look for the timestamp file accompanying the video file
+        
 
-        # printm("Camera detection complete.")
-        return detected_camera_names
+        # Get actual properties
+        actual_width = int(self._video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_height = int(self._video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = self._video_capture.get(cv2.CAP_PROP_FPS)
+
+        self._actual_camera_properties = CameraProperties(
+            width=actual_width,
+            height=actual_height,
+            fps=actual_fps,
+            # Brightness, offsetX, offsetY are generally not applicable for video files
+            brightness=-1,
+            offsetX=0,
+            offsetY=0,
+            other={'video_path': self._video_path}
+        )
+        self.print(f"........ actual props : {self._actual_camera_properties}")
+        return self._actual_camera_properties
+
+    def is_opened(self) -> bool:
+        """Returns True if the video file is currently opened."""
+        return self._is_opened and self._video_capture is not None and self._video_capture.isOpened()
+
+    def get_frame(self) -> Union[None, dict]:
+        """
+        Grabs a single frame from the video file.
+        Returns a dictionary containing the numpy array (image) and timestamp.
+        Returns None if no more frames can be grabbed.
+        """
+        if not self.is_opened():
+            return None
+
+        ret, frame = self._video_capture.read()
+        if ret:
+            timestamp_ms = self.get_time_stamp()
+            # Convert milliseconds to datetime object
+            timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0)
+            return {'frame': frame, 'timestamp': timestamp}
+        else:
+            return None
+        
+    def get_time_stamp(self):
+        # get the timestamp either from the video file,
+        # or from the accompaning text file with the timestamps, generated along with recording the video
+        # !#fix
+        timestamp_ms = self._video_capture.get(cv2.CAP_PROP_POS_MSEC)
+        return timestamp_ms
+
+    def release(self):
+        """Releases the video capture object and its resources."""
+        if self._video_capture:
+            self._video_capture.release()
+        self._is_opened = False
+        self._actual_camera_properties = None
+        self._video_path = None
+
+    def get_property(self, prop_id: Union[int, str]) -> Union[float, int, None]:
+        """
+        Gets a video property.
+        prop_id can be an OpenCV CAP_PROP_* constant.
+        """
+        if not self.is_opened():
+            return None
+        if isinstance(prop_id, int):
+            return self._video_capture.get(prop_id)
+        elif isinstance(prop_id, str):
+            # You can map string names to CAP_PROP_ constants if needed
+            if prop_id == 'width':
+                return self._video_capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+            elif prop_id == 'height':
+                return self._video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            elif prop_id == 'fps':
+                return self._video_capture.get(cv2.CAP_PROP_FPS)
+            elif prop_id == 'frame_count':
+                return self._video_capture.get(cv2.CAP_PROP_FRAME_COUNT)
+            elif prop_id == 'pos_msec':
+                return self._video_capture.get(cv2.CAP_PROP_POS_MSEC)
+            else:
+                print(f"Warning: Custom property '{prop_id}' not supported.")
+                return None
+        return None
+
+    def set_property(self, prop_id: Union[int, str], value: Union[float, int]) -> bool:
+        """
+        Sets a video property.
+        For video files, many properties are read-only.
+        Returns True on success, False otherwise.
+        """
+        if not self.is_opened():
+            return False
+        if isinstance(prop_id, int):
+            # Some properties like current position can be set
+            return self._video_capture.set(prop_id, value)
+        elif isinstance(prop_id, str):
+            if prop_id == 'pos_frames':
+                return self._video_capture.set(cv2.CAP_PROP_POS_FRAMES, value)
+            elif prop_id == 'pos_msec':
+                return self._video_capture.set(cv2.CAP_PROP_POS_MSEC, value)
+            else:
+                print(f"Warning: Setting custom property '{prop_id}' not supported or read-only for video files.")
+                return False
+        return False
+    
+    def print(self, s):
+        print(f"file_streamer: {s}")

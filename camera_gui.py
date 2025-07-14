@@ -18,13 +18,15 @@ from enum import Enum
 import traceback
 import functools
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
 from PyQt5.QtWidgets import (
     QApplication, QLabel, QVBoxLayout, QWidget, QComboBox,
     QPushButton, QHBoxLayout, QMessageBox, QDialog, QCheckBox, QMainWindow, QGroupBox, QStackedWidget, 
     QToolButton, QMenu, QAction, QScrollArea
 )
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtCore import QThread, pyqtSignal, Qt, QObject
+from PyQt5.QtGui import QImage, QPixmap, QIcon
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QObject, QSize
 from PyQt5 import QtCore
 
 from typing import Union, Type, List
@@ -86,7 +88,7 @@ class FrameAcquisitionThread(QThread):
     def __init__(self, src: Source, ms_sleep_bs_acquisitions: int=1):
         super().__init__()
         self._grabber = src.obj
-        self._camera_index = src.id
+        self._src_internal_id = src.id
         self._desired_props = src.settings
         self._running = True
         self.ms_sleep_bs_acquisitions = ms_sleep_bs_acquisitions
@@ -94,46 +96,54 @@ class FrameAcquisitionThread(QThread):
     def run(self):
         # This method is called by the .start() method of QThread after the thread has been created
         try:
-
-            actual_props = self._grabber.open(self._camera_index, self._desired_props)
+            actual_props = self._grabber.open(self._src_internal_id, self._desired_props)
             if not self._grabber.is_opened():
-                self.error_occurred.emit(f"Camera {self._camera_index} failed to initialize.")
+                self.print(f"Camera '{self._src_internal_id}' failed to initialize.")
+                self.error_occurred.emit(f"Camera '{self._src_internal_id}' failed to initialize.")
                 return
-
             self.camera_initialized.emit(actual_props)
-
             while self._running:
                 frame = self._grabber.get_frame()
                 if frame is not None:
-                    self.frame_ready.emit(frame)
+                    self.send_frame(frame)
                 else:
-                    self.error_occurred.emit(f"Failed to grab frame from Camera {self._camera_index}.")
+                    self.error_occurred.emit(f"Failed to grab frame from Camera {self._src_internal_id}.")
                     self._running = False
                 if self.ms_sleep_bs_acquisitions > 0:
                     self.msleep(self.ms_sleep_bs_acquisitions) # Small delay to prevent 100% CPU usage
         except Exception as e:
+            self.print(f"error: {e}")
             self.error_occurred.emit(f"An error occurred in acquisition thread: {e}")
             traceback.print_exc(file=sys.stdout)
         finally:
             if self._grabber:
                 self._grabber.release()
 
+    def send_frame(self, frame):
+        #! should be replaced with a class for sharing data using different methods,
+        # with an option of sharing using several methods, potentially, simultaneously over several channels
+        self.frame_ready.emit(frame)
+
     def stop(self):
         self._running = False
         self.quit()
         self.wait() # Wait for the thread to finish execution
-        print(f"FrameAcquisitionThread for camera {self._camera_index} stopped.")
-		# print(f"FrameAcquisitionThread for camera {self._grabber.cls_name} stopped.")
+        print(f"FrameAcquisitionThread for camera '{self._src_internal_id}' stopped.")
+
+    def print(self, s):
+        print(f"FrameAcquisitionThread: {s}")
 
 
 #! Split into FrameGrabberManager and CameraViewer
 
 class CameraViewer(QMainWindow):
-    def __init__(self, grabber: Type[Grabber], plugins: List[FrameProcessingPlugin], parent=None):
+    def __init__(self, grabber: Type[Grabber], plugins: List[FrameProcessingPlugin], autoplay: bool=False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Camera Viewer")
         self.setGeometry(100, 100, 800, 600)
 
+        self.autoplay = autoplay
+        self._framegrabber_initialized = False
         self.available_cameras = []
         self.available_sources = List[Source]
         self._current_src_index = 1
@@ -159,34 +169,41 @@ class CameraViewer(QMainWindow):
         self.detect_and_populate_cameras()
 
     def init_ui(self):
-        # Create a central widget that will hold the main layout
-        central_widget = QWidget(self)
-        self.setCentralWidget(central_widget)
-
-        # Set the main layout directly on the central widget
-        main_layout = QVBoxLayout(central_widget)
-
-        top_layout = QHBoxLayout()
         self.camera_selector = QComboBox()
         self.camera_selector.currentIndexChanged.connect(self.switch_source)
-        top_layout.addWidget(self.camera_selector)
 
-        self.refresh_button = QPushButton("Refresh Cameras")
+        self.play_pause_button = QPushButton("")  # "Run/Pause"
+        self.play_pause_button.clicked.connect(self.run_pause_framegrabber)
+        start_pause_icon = QIcon()
+        start_pause_icon.addPixmap(QPixmap(os.path.join(script_dir, "rss\pause-button1.png")), QIcon.Normal, QIcon.Off)
+        start_pause_icon.addPixmap(QPixmap(os.path.join(script_dir, "rss\start-button1.png")), QIcon.Normal, QIcon.On)
+        self.play_pause_button.setIcon(start_pause_icon)
+        self.play_pause_button.setIconSize(QSize(32, 32))
+        self.play_pause_button.setFixedSize(QSize(36, 36))
+        self.play_pause_button.setCheckable(True)
+        self.play_pause_button.setChecked(True)
+
+        self.refresh_button = QPushButton()  #"Refresh Cameras"
+        refresh_button = QIcon(QIcon(os.path.join(script_dir, r"rss\reload_btn.png")))
         self.refresh_button.clicked.connect(self.detect_and_populate_cameras)
-        top_layout.addWidget(self.refresh_button)
+        self.refresh_button.setIcon(refresh_button)
+        self.refresh_button.setIconSize(QSize(32, 32))
+        self.refresh_button.setFixedSize(QSize(36, 36))
 
-        self.settings_button = QPushButton("Camera Settings")
+        self.settings_button = QPushButton()  # "Settings"
         self.settings_button.clicked.connect(self.open_camera_settings)
-        self.settings_button.setEnabled(False) # Initially disabled
-        top_layout.addWidget(self.settings_button)
+        self.settings_button.setIcon(QIcon(os.path.join(script_dir, r"rss\gear_black_full_10teeth.png")))
+        self.settings_button.setIconSize(QSize(32, 32))
+        self.settings_button.setFixedSize(QSize(36, 36))
+        self.settings_button.setEnabled(False)
 
         # Add shared memory checkbox to top layout
-        self.mmf_checkbox = QCheckBox("Enable Shared Memory")
+        self.mmf_checkbox = QCheckBox("Shared Memory")
         self.mmf_checkbox.stateChanged.connect(self.toggle_shared_memory)
         self.mmf_checkbox.setEnabled(self._shared_memory_available and self._actual_camera_properties is not None)
         if not self._shared_memory_available:
             self.mmf_checkbox.setToolTip("Shared Memory functionality is unavailable due to missing pywin32 modules.")
-        top_layout.addWidget(self.mmf_checkbox)
+        self.mmf_checkbox.setFixedSize(QSize(150, 36))
 
         # Plugins QToolButton
         self.plugins_tool_button = QToolButton(self)
@@ -194,9 +211,7 @@ class CameraViewer(QMainWindow):
         # self.plugins_tool_button.setIcon(QIcon('path/to/your/icon.png')) # Optional: use an icon
         self.plugins_tool_button.setPopupMode(QToolButton.InstantPopup) # Menu pops up instantly on click
         self.plugins_tool_button.setArrowType(Qt.DownArrow) # Adds a small down arrow to indicate a menu
-
         self.plugins_menu = QMenu(self) # Create the menu that will contain plugin actions
-
         if not self.plugins:
             self.plugins_tool_button.setEnabled(False)
             self.plugins_tool_button.setText("No Plugins") # Concise text when disabled
@@ -206,51 +221,54 @@ class CameraViewer(QMainWindow):
                 # Connect the action's triggered signal to our activation slot
                 action.triggered.connect(functools.partial(self._activate_selected_plugin, plugin))
                 self.plugins_menu.addAction(action) # Add the action to the menu
-
         self.plugins_tool_button.setMenu(self.plugins_menu) # Set the created menu for the QToolButton
-        top_layout.addWidget(self.plugins_tool_button) # <--- Add the QToolButton directly to top_layout
 
-        main_layout.addLayout(top_layout)
-
+        # Image widget
         self.label = QLabel("No Camera Selected")
-        self.label.setScaledContents(True)
+        # self.label.setScaledContents(True)
         self.label.setAlignment(QtCore.Qt.AlignCenter)
-        # main_layout.addWidget(self.label)
-
-        # Crucial part: Put the label inside a QScrollArea
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True) # This makes the contained widget (label)
                                                   # resize to fill the scroll area's viewport
         self.scroll_area.setWidget(self.label)
 
+        ### LAYOUTS
+        # top row layout
+        top_layout = QHBoxLayout()
+        top_layout.addWidget(self.camera_selector)
+        top_layout.addWidget(self.play_pause_button)
+        top_layout.addWidget(self.refresh_button)
+        top_layout.addWidget(self.settings_button)
+        top_layout.addWidget(self.mmf_checkbox)
+        top_layout.addWidget(self.plugins_tool_button)
+        # Create a central widget that will hold the main layout
+        central_widget = QWidget(self)
+        self.setCentralWidget(central_widget)
+        # Set the main layout directly on the central widget
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.addLayout(top_layout)
         main_layout.addWidget(self.scroll_area)
 
         self.resize(800, 600) # Set an initial reasonable window size
-
-
-
-
-
         self.setWindowTitle("Camera Viewer")
-        # self.show() # You might call show() from outside, e.g., in __main__
 
     def _activate_selected_plugin(self, plugin: FrameProcessingPlugin):
         """
         Activates the selected plugin's main action.
         This method is called when an action in the plugin menu is triggered.
         """
-        print(f"Attempting to activate plugin: {plugin.get_name()}")
+        self.print(f"Attempting to activate plugin: {plugin.get_name()}")
 
         plugin_main_widget = plugin.get_ui_widget()
 
         if isinstance(plugin_main_widget, QPushButton):
             plugin_main_widget.click() # Programmatically click the plugin's main button
-            print(f"Plugin '{plugin.get_name()}' activated by programmatic click.")
+            self.print(f"Plugin '{plugin.get_name()}' activated by programmatic click.")
         else:
             QMessageBox.information(self, "Plugin Activation",
                                     f"Plugin '{plugin.get_name()}' does not have a direct activation button "
                                     f"via its get_ui_widget method. Its UI might appear differently or require direct handling.")
-            print(f"WARNING: Plugin '{plugin.get_name()}' get_ui_widget() returned {type(plugin_main_widget)}, "
+            self.print(f"WARNING: Plugin '{plugin.get_name()}' get_ui_widget() returned {type(plugin_main_widget)}, "
                   f"not QPushButton. Cannot simulate click.")
 
     def detect_and_populate_cameras(self):
@@ -263,7 +281,7 @@ class CameraViewer(QMainWindow):
             self.camera_selector.currentIndexChanged.disconnect(self.switch_source)
         except TypeError:
             pass
-            
+
         self.camera_selector.clear()
         if self.available_sources:
             src_names = [src.name for src in self.available_sources]
@@ -309,7 +327,7 @@ class CameraViewer(QMainWindow):
             # src.settings = self._frame_grabber.settings
             self.available_sources.append(src)
 
-    def start_camera(self):         # rename to stream_from_source
+    def start_framegrabber(self):
         """Starts a new camera acquisition thread with specified or default properties."""
         if self.camera_thread and self.camera_thread.isRunning():
             self.camera_thread.stop()
@@ -335,11 +353,13 @@ class CameraViewer(QMainWindow):
         self.camera_thread.error_occurred.connect(self.handle_error)
         self.camera_thread.camera_initialized.connect(self._on_camera_initialized_and_start_display)
         self.camera_thread.start()
+        self._framegrabber_initialized = True
+        self.play_pause_button.setCheckable(True)
 
     def _on_camera_initialized_and_start_display(self, actual_props: CameraProperties):
         """Slot called when the camera acquisition thread initializes the camera."""
         self._actual_camera_properties = actual_props
-        print(f"CameraViewer: Camera initialized with actual properties: {actual_props}")
+        self.print(f"CameraViewer: Camera initialized with actual properties: {actual_props}")
 
         self.settings_button.setEnabled(True)
         self.mmf_checkbox.setEnabled(self._shared_memory_available and True)
@@ -350,14 +370,35 @@ class CameraViewer(QMainWindow):
         for plugin in self.plugins:
             plugin.init_plugin(actual_props)
 
+    def run_pause_framegrabber(self, checked):
+        try:
+            if checked:
+                if self.camera_thread and self.camera_thread.isRunning():
+                    self.camera_thread.stop()
+                    self.camera_thread.wait()
+            else:
+                if self._framegrabber_initialized:
+                    self.camera_thread = FrameAcquisitionThread(self._current_src)   # desired_props
+
+                    self.camera_thread.frame_ready.connect(self._on_frame_ready)
+                    self.camera_thread.error_occurred.connect(self.handle_error)
+                    self.camera_thread.camera_initialized.connect(self._on_camera_initialized_and_start_display)
+                    self.camera_thread.start()
+                else:
+                    self.start_framegrabber()
+        except Exception as e:
+            self.print(f"run_pause_framegrabber: {e}")
+
     def switch_source(self):
         """Switch to the selected source based on combobox selection."""
-        print(f"'''''''''''''''''''''''switching sources")
         try:
             self._current_src = self.available_sources[self.camera_selector.currentIndex()]
-            self.start_camera() 
+            if self.autoplay:
+                self.start_framegrabber()
+            else:
+                self._framegrabber_initialized = False 
         except Exception as e:
-            print(f"{e}")
+            self.print(f"{e}")
 
     def _on_frame_ready(self, frame_package: dict):
         """Convert frame and display in QLabel, also pass to active plugins."""
@@ -442,8 +483,8 @@ class CameraViewer(QMainWindow):
     def apply_camera_settings(self, settings_props: CameraProperties):
         """Applies the settings received from the settings dialog by restarting the camera."""
         if self._camera_grabber and self._camera_grabber.is_opened():
-            print(f"Applying new settings and re-opening camera: {settings_props}")
-            self.start_camera(self._current_src_index, settings_props)
+            self.print(f"Applying new settings and re-opening camera: {settings_props}")
+            self.start_framegrabber(self._current_src_index, settings_props)
         else:
             QMessageBox.warning(self, "No Active Camera", "No camera is currently active to apply settings to.")
 
@@ -507,7 +548,10 @@ class CameraViewer(QMainWindow):
             self._camera_grabber.release()
 
         super().closeEvent(event)
-        print("Application closed.")
+        self.print("Application closed.")
+
+    def print(self, s: str):
+        print(f"FrameGrabberManager: {s}")
 
 
 def main():
