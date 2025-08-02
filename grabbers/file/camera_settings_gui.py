@@ -1,119 +1,110 @@
-import sys#, os
+import sys
+import os
 import numpy as np
 from PyQt5.QtWidgets import ( # Changed from PyQt6 to PyQt5
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, # QDialog instead of QWidget
-    QLabel, QSlider, QLineEdit, QPushButton, QFormLayout, QMessageBox
+    QLabel, QSlider, QLineEdit, QPushButton, QFormLayout, QMessageBox, QFileDialog
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QIntValidator, QDoubleValidator
 # from opencv_camera_gui_multithreading_camera_selector import FrameAcquisitionThread
 import cv2 # Still needed for CAP_PROP constants
 from typing import Union
+import traceback
+from ...utils.common import print_error, print_warning
 
 # current_script_dir = os.path.dirname(os.path.abspath(__file__))
 # project_root_dir = os.path.dirname(current_script_dir)
 # sys.path.insert(0, project_root_dir)
 # print(project_root_dir)
 # from .. import camera_interface
-from ..camera_interface import CameraGrabberInterface, CameraProperties
+from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
 
 
 class SettingsWindow(QDialog): # Inherit from QDialog
     # Signal emitted when settings are applied, carrying CameraProperties object
-    settings_applied = pyqtSignal(CameraProperties)
+    settings_applied = pyqtSignal(Source)
 
-    def __init__(self, acquisition_thread_instance: Union['FrameAcquisitionThread', None],
-                 grabber_instance: Union[CameraGrabberInterface, None],
-                 initial_props: CameraProperties, # Added initial_props
+    # def __init__(self, acquisition_thread_instance: Union['FrameAcquisitionThread', None],
+    #              grabber_instance: Union[CameraGrabberInterface, None],
+    #              initial_props: CameraProperties, # Added initial_props
+    #              parent=None):
+
+    def __init__(self, src: Source,
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("Camera Settings")
-        self.setGeometry(200, 200, 500, 350) # Adjusted geometry
+        self.setGeometry(200, 200, 500, 200) # Adjusted geometry
 
-        self._acquisition_thread = acquisition_thread_instance
-        self._camera_grabber = grabber_instance
-        self._initial_props = initial_props # Store initial properties
-
+        # self._acquisition_thread = acquisition_thread_instance
+        # self._camera_grabber = grabber_instance
+        # self._initial_props = initial_props # Store initial properties
+        self.src = src
         self.init_ui()
         self.load_current_settings()
 
     def init_ui(self):
-        main_layout = QVBoxLayout()
-        form_layout = QFormLayout()
-
-        # --- Width Control ---
-        self.width_input = QLineEdit()
-        self.width_input.setValidator(QIntValidator(1, 4096)) # Assuming common max width
-        self.width_input.editingFinished.connect(lambda: self._validate_and_update_value(self.width_input))
-        form_layout.addRow("Width (pixels):", self.width_input)
-
-        # --- Height Control ---
-        self.height_input = QLineEdit()
-        self.height_input.setValidator(QIntValidator(1, 4096)) # Assuming common max height
-        self.height_input.editingFinished.connect(lambda: self._validate_and_update_value(self.height_input))
-        form_layout.addRow("Height (pixels):", self.height_input)
+        # File Path selection
+        filepath_to_show = self.src.id if self.src.id else "file with images"
+        self.file_path_edit = QLineEdit(filepath_to_show)
+        self.file_path_edit.textChanged.connect(self.select_file)
+        self.browse_button = QPushButton("Browse...")
+        self.browse_button.clicked.connect(self.select_file)
 
         # --- FPS Control ---
         self.fps_input = QLineEdit()
-        # Allow float values for FPS
-        self.fps_input.setValidator(QDoubleValidator(1.0, 1000.0, 2)) # Min 1.0, Max 1000.0, 2 decimal places
+        self.fps_input.setValidator(QDoubleValidator(0.1, 1000.0, 2)) # Min 0.1, Max 1000.0, 2 decimal places
         self.fps_input.editingFinished.connect(lambda: self._validate_and_update_value(self.fps_input))
-        form_layout.addRow("FPS:", self.fps_input)
-
-        # --- Brightness Control ---
-        self.brightness_slider = QSlider(Qt.Horizontal)
-        self.brightness_slider.setRange(0, 255) # Common range for brightness
-        self.brightness_slider.setTickPosition(QSlider.TicksBelow)
-        self.brightness_slider.setTickInterval(25)
-        self.brightness_slider.valueChanged.connect(self._update_brightness_value)
-
-        self.brightness_value_label = QLabel("0")
-        brightness_layout = QHBoxLayout()
-        brightness_layout.addWidget(self.brightness_slider)
-        brightness_layout.addWidget(self.brightness_value_label)
-        form_layout.addRow("Brightness:", brightness_layout)
-
-
-        main_layout.addLayout(form_layout)
-
+        
         # --- Action Buttons ---
-        button_layout = QHBoxLayout()
         self.apply_button = QPushButton("Apply")
         self.apply_button.clicked.connect(self.apply_settings)
-        button_layout.addWidget(self.apply_button)
-
+        
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel_settings)
+
+        # Layouts
+        file_path_layout = QHBoxLayout()
+        file_path_layout.addWidget(QLabel("Input File:"))
+        file_path_layout.addWidget(self.file_path_edit)
+        file_path_layout.addWidget(self.browse_button)
+
+        form_layout = QFormLayout()
+        form_layout.addRow("FPS:", self.fps_input)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.apply_button)
         button_layout.addWidget(self.cancel_button)
 
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(file_path_layout)
+        main_layout.addLayout(form_layout)
         main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
 
     def load_current_settings(self):
         """Loads current camera properties into the UI."""
-        if self._initial_props:
-            self.width_input.setText(str(self._initial_props.width))
-            self.height_input.setText(str(self._initial_props.height))
-            self.fps_input.setText(f"{self._initial_props.fps:.1f}") # Format to 1 decimal place
-
-            # Brightness
-            if self._initial_props.brightness != -1: # -1 indicates not set or supported
-                self.brightness_slider.setValue(self._initial_props.brightness)
-                self.brightness_value_label.setText(str(self._initial_props.brightness))
-            else:
-                self.brightness_slider.setEnabled(False) # Disable if brightness is not supported
-                self.brightness_value_label.setText("N/A")
+        if self.src:
+            self.fps_input.setText(f"{self.src.settings.fps:.1f}") # Format to 1 decimal place
         else:
-            # Set default/placeholder values if no initial props available
-            self.width_input.setText("640")
-            self.height_input.setText("480")
             self.fps_input.setText("30.0")
-            self.brightness_slider.setValue(128)
-            self.brightness_value_label.setText("128")
-            self.brightness_slider.setEnabled(True) # Re-enable for manual setting if desired
 
-    def _update_brightness_value(self, value):
-        self.brightness_value_label.setText(str(value))
+    def select_file(self):
+        try:
+            # initial_directory = os.path.dirname(self.file_path_edit.text())
+            file_path, _ = QFileDialog.getOpenFileName(self,
+                                                       "Select Video File",
+                                                       self.file_path_edit.text(),
+                                                       "All Files (*);;Text Files (*.avi)")
+            if file_path:
+                # block the connected signal from the file_path_edit temporarily
+                # so that the selected path doesn't cause another opening of the QFileDialog
+                self.file_path_edit.blockSignals(True)  
+                self.file_path_edit.setText(file_path)
+                self.file_path_edit.blockSignals(False)
+        except Exception as e:
+            traceback.print_exc(file=sys.stdout)
+
 
     def _validate_and_update_value(self, line_edit: QLineEdit):
         # This function ensures that if a user types an invalid value and tabs out,
@@ -143,36 +134,29 @@ class SettingsWindow(QDialog): # Inherit from QDialog
                     line_edit.setText(f"{self._initial_props.fps:.1f}" if line_edit == self.fps_input else "30.0")
             except ValueError:
                 line_edit.setText(f"{self._initial_props.fps:.1f}" if line_edit == self.fps_input else "30.0")
+        pass
 
 
     def apply_settings(self):
         """Collects settings from UI and emits them."""
         try:
-            new_width = int(self.width_input.text())
-            new_height = int(self.height_input.text())
-            new_offsetX = 0,
-            new_offsetY = 0,
-            new_fps = float(self.fps_input.text())
-            new_brightness = self.brightness_slider.value() if self.brightness_slider.isEnabled() else -1
-
-            new_props = CameraProperties(
-                width=new_width,
-                height=new_height,
-                offsetX = new_offsetX,
-                offsetY = new_offsetY,
-                fps=new_fps,
-                brightness=new_brightness
-            )
-            self.settings_applied.emit(new_props)
+            self.src.id = self.file_path_edit.text()
+            self.src.settings.fps = float(self.fps_input.text())
+            self.settings_applied.emit(self.src)
             self.accept() # Close dialog with accepted result
         except ValueError as e:
             QMessageBox.warning(self, "Invalid Input", f"Please enter valid numeric values for all settings: {e}")
+            self.print_error(traceback.format_exc())
         except Exception as e:
             QMessageBox.critical(self, "Error Applying Settings", f"An unexpected error occurred: {e}")
+            self.print_error(traceback.format_exc())
 
     def cancel_settings(self):
         """Closes the dialog without applying settings."""
         self.reject() # Close dialog with rejected result
+
+    def print_error(self, s: str):
+        print_error(f"file_streamer settings: {s}")
 
 
 # --- Example Usage (for testing camera_settings_gui.py in isolation) ---

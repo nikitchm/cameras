@@ -2,10 +2,11 @@ import cv2
 import os
 import sys
 import datetime
+import time
 import numpy as np
 import traceback
 from typing import List, Union, Optional, Dict
-from ..camera_interface import CameraGrabberInterface, CameraProperties
+from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
 
 class CameraGrabberInterface(CameraGrabberInterface):
     def __init__(self):
@@ -17,7 +18,10 @@ class FileStreaming(CameraGrabberInterface):
     def __init__(self):
         super().__init__()
         self._video_capture: Optional[cv2.VideoCapture] = None
+        self._src: Source = None
         self._video_path: Optional[str] = None
+        self._ms_bw_frames = 0.0              # time [ms] between frames computed from fps
+        self._last_frame_time_ms = -1000.0  # time [ms] when the last frame was acquired
 
     def detect_cameras(self) -> List[str]:
         """
@@ -25,17 +29,18 @@ class FileStreaming(CameraGrabberInterface):
         expect the video path to be known beforehand. We'll return an empty list
         as we don't 'detect' video files in the same way we detect cameras.
         """
-        print("Note: detect_cameras is not applicable for video file grabbers.")
-        return []
+        # print("Note: detect_cameras is not applicable for video file grabbers.")
+        return [self._video_path]
 
-    def open(self, video_path: str, desired_props: CameraProperties = CameraProperties()) -> CameraProperties:
+    def open(self, src: Union[Source, None]=None) -> Source:
         """
         Opens the video file specified by video_path.
         try/except handling is supposed to be done in the calling script.
         """
-        self._video_path = video_path
-        self._video_path = r"C:\Users\MaxD2b\Downloads\output.avi"
-        print(f"...... self._video_path: {self._video_path}, desired_props: {desired_props}")
+        if src:
+            self._src = src
+        self._video_path = str(self._src.id)
+        # self._video_path = r"C:\Users\MaxD2b\Downloads\output.avi"
         if type(self._video_path) is not str:
             raise TypeError(f"video_path argument must be a string. Provided: {self._video_path}")
         if not os.path.exists(self._video_path):
@@ -58,9 +63,9 @@ class FileStreaming(CameraGrabberInterface):
         # Get actual properties
         actual_width = int(self._video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         actual_height = int(self._video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        actual_fps = self._video_capture.get(cv2.CAP_PROP_FPS)
+        actual_fps = self._src.settings.fps if self._src else self._video_capture.get(cv2.CAP_PROP_FPS)
 
-        self._actual_camera_properties = CameraProperties(
+        self._src.settings = CameraProperties(
             width=actual_width,
             height=actual_height,
             fps=actual_fps,
@@ -70,8 +75,10 @@ class FileStreaming(CameraGrabberInterface):
             offsetY=0,
             other={'video_path': self._video_path}
         )
-        self.print(f"........ actual props : {self._actual_camera_properties}")
-        return self._actual_camera_properties
+       
+        self._ms_bw_frames = 1000/self._src.settings.fps
+
+        return self._src
 
     def is_opened(self) -> bool:
         """Returns True if the video file is currently opened."""
@@ -86,9 +93,20 @@ class FileStreaming(CameraGrabberInterface):
         if not self.is_opened():
             return None
 
+        cur_time_ms = time.time()*1000
+        time_to_wait_until_next_frame_ms = self._ms_bw_frames - (cur_time_ms - self._last_frame_time_ms)
+        if time_to_wait_until_next_frame_ms > 0.0:
+            # print(f"sleeping {time_to_wait_until_next_frame_ms} ms")
+            time.sleep(time_to_wait_until_next_frame_ms / 1000)
+        cur_time_ms = time.time()*1000
+        # print(f"time bw frames = {cur_time_ms - self._last_frame_time_ms} ms")
+        self._last_frame_time_ms = cur_time_ms
+        # print(f"_last_frame_time_ms = {self._last_frame_time_ms} ms")
+
         ret, frame = self._video_capture.read()
         if ret:
             timestamp_ms = self.get_time_stamp()
+            # print(f"timestamp_ms = {timestamp_ms}")
             # Convert milliseconds to datetime object
             timestamp = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0)
             return {'frame': frame, 'timestamp': timestamp}

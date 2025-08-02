@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from typing import List, Tuple, Union
-from ..camera_interface import CameraGrabberInterface, CameraProperties
+from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
 from ...utils.StderrSuppressor import StderrSuppressor
 from datetime import datetime
 
@@ -19,13 +19,16 @@ class OpenCVCapture(CameraGrabberInterface):
         self._camera_index: int = -1
         self._detection_max_consecutive_failures = detection_max_consecutive_failures
 
-    def open(self, camera_index: Union[int, str], desired_props: CameraProperties = CameraProperties()) -> CameraProperties:
+    # def open(self, camera_index: Union[int, str], desired_props: CameraProperties = CameraProperties()) -> CameraProperties:
+    def open(self, src: Source) -> Source:
         """
-        Opens the camera specified by index with desired properties.
+        Opens the camera specified by the source which should have the `id` field for the camera id filled
+        as well as the `settings` field with the desired properties of the camera.
         Attempts to use DSHOW backend first, then falls back to MSMF.
-        Returns the actual properties the camera was opened with.
+        Returns the updated src object with the actual properties of the opened camera.
         """
-        camera_index = int(camera_index)    # ensure it's int
+        desired_props = src.settings
+        camera_index = int(src.id)    # ensure it's int
         self._camera_index = camera_index
         
         # Release any previously opened camera
@@ -78,8 +81,9 @@ class OpenCVCapture(CameraGrabberInterface):
         else:
             self.print(f"Failed to open camera {camera_index} with any backend.")
             self.release() # Ensure release if opening failed
-            
-        return actual_props
+
+        src.settings = actual_props 
+        return src
 
     def get_frame(self) -> Union[np.ndarray, None]:
         """Grabs a single frame from the camera."""

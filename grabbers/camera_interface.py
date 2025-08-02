@@ -1,9 +1,9 @@
 import abc
 import dataclasses
 # --- Added List from typing module ---
-from typing import List, Union, Optional, Dict
+from typing import List, Union, Optional, Dict, Type, TypeVar
 import numpy as np
-
+from PyQt5.QtWidgets import QDialog
 
 @dataclasses.dataclass
 class CameraProperties:
@@ -15,6 +15,25 @@ class CameraProperties:
     offsetY : int = 0
     other : Dict[str, str] = dataclasses.field(default_factory=dict)
 
+@dataclasses.dataclass
+class Grabber:
+    """
+    This class describes the properties of a particular grabber, s.a., FileStreamer, Opencv, or PyCapture2
+    """
+    class KNOWN_GRABBERS:               # nicknames for the grabbers. Allow comparing strings via . calls.
+        OPENCV = "opencv"
+        PyCapture2 = "pycapture2"
+        File = "file"
+    cls: Type["CameraGrabberInterface"] = None  # Use Type for class reference. We 
+    cls_name: KNOWN_GRABBERS = None
+    cam_settings_wnd: Type[QDialog] = None      # Use Type for class reference
+    settings: CameraProperties = CameraProperties()           # default settings for different cameras of this grabber
+    obj: "CameraGrabberInterface" = None
+
+@dataclasses.dataclass
+class Source(Grabber):
+    id  : Union[int, str] = None        # The id of the camera by which it's recognized by a particular grabber
+    name: str = ""                      # Colloquial name of the frame grabber 
 
 
 class CameraGrabberInterface(abc.ABC):
@@ -31,10 +50,10 @@ class CameraGrabberInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def open(self, index: str, desired_props: CameraProperties) -> CameraProperties:
+    # def open(self, src: Source = Source()) -> Source:
+    def open(self, src: Source) -> Source:
         """
-        Opens the camera at the given index with desired properties and
-        returns the actual properties achieved by the camera.
+        Opens the camera defined by the `src` and returns the updated src. 
         """
         pass
 

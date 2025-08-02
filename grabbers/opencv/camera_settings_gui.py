@@ -15,24 +15,23 @@ from typing import Union
 # sys.path.insert(0, project_root_dir)
 # print(project_root_dir)
 # from .. import camera_interface
-from ..camera_interface import CameraGrabberInterface, CameraProperties
+from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
 
 
 class SettingsWindow(QDialog): # Inherit from QDialog
     # Signal emitted when settings are applied, carrying CameraProperties object
-    settings_applied = pyqtSignal(CameraProperties)
+    settings_applied = pyqtSignal(Source)
 
-    def __init__(self, acquisition_thread_instance: Union['FrameAcquisitionThread', None],
-                 grabber_instance: Union[CameraGrabberInterface, None],
-                 initial_props: CameraProperties, # Added initial_props
+    def __init__(self, src: Source,
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("Camera Settings")
         self.setGeometry(200, 200, 500, 350) # Adjusted geometry
 
-        self._acquisition_thread = acquisition_thread_instance
-        self._camera_grabber = grabber_instance
-        self._initial_props = initial_props # Store initial properties
+        # self._acquisition_thread = acquisition_thread_instance
+        # self._camera_grabber = grabber_instance
+        # self._initial_props = initial_props # Store initial properties
+        self.src = src
 
         self.init_ui()
         self.load_current_settings()
@@ -91,15 +90,15 @@ class SettingsWindow(QDialog): # Inherit from QDialog
 
     def load_current_settings(self):
         """Loads current camera properties into the UI."""
-        if self._initial_props:
-            self.width_input.setText(str(self._initial_props.width))
-            self.height_input.setText(str(self._initial_props.height))
-            self.fps_input.setText(f"{self._initial_props.fps:.1f}") # Format to 1 decimal place
+        if self.src:
+            self.width_input.setText(str(self.src.settings.width))
+            self.height_input.setText(str(self.src.settings.height))
+            self.fps_input.setText(f"{self.src.settings.fps:.1f}") # Format to 1 decimal place
 
             # Brightness
-            if self._initial_props.brightness != -1: # -1 indicates not set or supported
-                self.brightness_slider.setValue(self._initial_props.brightness)
-                self.brightness_value_label.setText(str(self._initial_props.brightness))
+            if self.src.settings.brightness != -1: # -1 indicates not set or supported
+                self.brightness_slider.setValue(self.src.settings.brightness)
+                self.brightness_value_label.setText(str(self.src.settings.brightness))
             else:
                 self.brightness_slider.setEnabled(False) # Disable if brightness is not supported
                 self.brightness_value_label.setText("N/A")
@@ -128,21 +127,21 @@ class SettingsWindow(QDialog): # Inherit from QDialog
                     line_edit.setText(str(value)) # Ensure it's correctly formatted
                 else:
                     # Value out of range, revert to initial or a safe value
-                    line_edit.setText(str(self._initial_props.width if line_edit == self.width_input else \
-                                        self._initial_props.height if line_edit == self.height_input else 0))
+                    line_edit.setText(str(self.src.settings.width if line_edit == self.width_input else \
+                                        self.src.settings.height if line_edit == self.height_input else 0))
             except ValueError:
                 # Invalid input, revert to initial or a safe value
-                 line_edit.setText(str(self._initial_props.width if line_edit == self.width_input else \
-                                        self._initial_props.height if line_edit == self.height_input else 0))
+                 line_edit.setText(str(self.src.settings.width if line_edit == self.width_input else \
+                                        self.src.settings.height if line_edit == self.height_input else 0))
         elif isinstance(validator, QDoubleValidator):
             try:
                 value = float(text)
                 if validator.bottom() <= value <= validator.top():
                     line_edit.setText(f"{value:.1f}") # Format to 1 decimal place
                 else:
-                    line_edit.setText(f"{self._initial_props.fps:.1f}" if line_edit == self.fps_input else "30.0")
+                    line_edit.setText(f"{self.src.settings.fps:.1f}" if line_edit == self.fps_input else "30.0")
             except ValueError:
-                line_edit.setText(f"{self._initial_props.fps:.1f}" if line_edit == self.fps_input else "30.0")
+                line_edit.setText(f"{self.src.settings.fps:.1f}" if line_edit == self.fps_input else "30.0")
 
 
     def apply_settings(self):
@@ -155,7 +154,7 @@ class SettingsWindow(QDialog): # Inherit from QDialog
             new_fps = float(self.fps_input.text())
             new_brightness = self.brightness_slider.value() if self.brightness_slider.isEnabled() else -1
 
-            new_props = CameraProperties(
+            self.src.settings = CameraProperties(
                 width=new_width,
                 height=new_height,
                 offsetX = new_offsetX,
@@ -163,7 +162,7 @@ class SettingsWindow(QDialog): # Inherit from QDialog
                 fps=new_fps,
                 brightness=new_brightness
             )
-            self.settings_applied.emit(new_props)
+            self.settings_applied.emit(self.src)
             self.accept() # Close dialog with accepted result
         except ValueError as e:
             QMessageBox.warning(self, "Invalid Input", f"Please enter valid numeric values for all settings: {e}")

@@ -1,10 +1,12 @@
 # Main module in a python package for the control of frame grabbers and is responsible for the selection 
 # of the used frame grabber, mechanism of sharing data with other processes and selection of the plugin for
 # post-processing of the acquired frames.
+# See docs/README.md details.
+# To start, either 
 
 import sys
 if False:
-    print(f"--- DIAGNOSTICS: camera_gui.py ---")
+    print(f"-----------------------------------")
     print(f"__name__: {__name__}")
     print(f"__package__: {__package__}")
     print(f"sys.path: {sys.path}")
@@ -17,6 +19,9 @@ import dataclasses
 from enum import Enum
 import traceback
 import functools
+import colorama
+
+colorama.init(autoreset=True)   # autoreset=True ensures that after each print, the styling is reset back to the default terminal color, so you don't have to manually add Style.RESET_ALL.
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -32,15 +37,13 @@ from PyQt5 import QtCore
 from typing import Union, Type, List
 
 # Custom modules
-from .grabbers.camera_interface import CameraGrabberInterface, CameraProperties
+from .grabbers.camera_interface import CameraGrabberInterface, CameraProperties, Grabber, Source
 
 # Import the new plugin interface and specific plugins
 from .plugins.plugin_interface import FrameProcessingPlugin
 
 from .utils.dataclass_utils import create_child_from_parent, create_child_from_parent_deep
-
-from .grabbers.file.file_streamer import FileStreaming
-from .grabbers.file.camera_settings_gui import SettingsWindow as FileStreamer_SettingsWindow
+from .utils.common import print_error, print_warning
 
 # --- SharedMemoryFrameSender ---
 try:
@@ -50,30 +53,10 @@ try:
     SHARED_MUTEX_NAME = "CameraFrameMutex"
     DEFAULT_MAX_MMF_BUFFER_SIZE = 2048 * 2048 * 3
 except ImportError as e:
-    print(f"Warning: Shared Memory functionality disabled. Could not import pywin32 modules: {e}")
+    print_error(f"Warning: Shared Memory functionality disabled. Could not import pywin32 modules: {e}")
     print("Please ensure 'pywin32' is correctly installed and its DLLs are accessible.")
     _SHARED_MEMORY_IMPORTS_SUCCESSFUL = False
     SharedMemoryFrameSender = None
-
-@dataclasses.dataclass
-class Grabber:
-    """
-    This class describes the properties of a particular grabber, s.a., FileStreamer, Opencv, or PyCapture2
-    """
-    class KNOWN_GRABBERS:               # nicknames for the grabbers. Allow comparing strings via . calls.
-        OPENCV = "opencv"
-        PyCapture2 = "pycapture2"
-        File = "file"
-    cls: Type[CameraGrabberInterface]   # Use Type for class reference
-    cls_name: KNOWN_GRABBERS
-    cam_settings_wnd: Type[QDialog]     # Use Type for class reference
-    settings: CameraProperties = None   # default settings for different cameras of this grabber
-    obj: CameraGrabberInterface = None
-
-@dataclasses.dataclass
-class Source(Grabber):
-    id  : Union[int, str] = None        # The id of the camera by which it's recognized by a particular grabber
-    name: str = ""                      # Colloquial name of the frame grabber 
 
 
 # --- Frame Acquisition Thread ---
@@ -88,6 +71,7 @@ class FrameAcquisitionThread(QThread):
     def __init__(self, src: Source, ms_sleep_bs_acquisitions: int=1):
         super().__init__()
         self._grabber = src.obj
+        self._src = src
         self._src_internal_id = src.id
         self._desired_props = src.settings
         self._running = True
@@ -96,7 +80,9 @@ class FrameAcquisitionThread(QThread):
     def run(self):
         # This method is called by the .start() method of QThread after the thread has been created
         try:
-            actual_props = self._grabber.open(self._src_internal_id, self._desired_props)
+            # actual_props = self._grabber.open(self._src_internal_id, self._desired_props)
+            self._src = self._grabber.open(self._src)
+            actual_props = self._src.settings
             if not self._grabber.is_opened():
                 self.print(f"Camera '{self._src_internal_id}' failed to initialize.")
                 self.error_occurred.emit(f"Camera '{self._src_internal_id}' failed to initialize.")
@@ -112,7 +98,7 @@ class FrameAcquisitionThread(QThread):
                 if self.ms_sleep_bs_acquisitions > 0:
                     self.msleep(self.ms_sleep_bs_acquisitions) # Small delay to prevent 100% CPU usage
         except Exception as e:
-            self.print(f"error: {e}")
+            self.print_error(f"error: {e}")
             self.error_occurred.emit(f"An error occurred in acquisition thread: {e}")
             traceback.print_exc(file=sys.stdout)
         finally:
@@ -128,28 +114,29 @@ class FrameAcquisitionThread(QThread):
         self._running = False
         self.quit()
         self.wait() # Wait for the thread to finish execution
-        print(f"FrameAcquisitionThread for camera '{self._src_internal_id}' stopped.")
+        self.print(f"Camera '{self._src_internal_id}' thread stopped.")
 
     def print(self, s):
         print(f"FrameAcquisitionThread: {s}")
+
+    def print_error(self, s):
+        print_error(f"FrameAcquisitionThread: {s}")
 
 
 #! Split into FrameGrabberManager and CameraViewer
 
 class CameraViewer(QMainWindow):
-    def __init__(self, grabber: Type[Grabber], plugins: List[FrameProcessingPlugin], autoplay: bool=False, parent=None):
+    def __init__(self, grabbers: Type[Grabber], plugins: List[FrameProcessingPlugin], autoplay: bool=False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Camera Viewer")
         self.setGeometry(100, 100, 800, 600)
 
         self.autoplay = autoplay
         self._framegrabber_initialized = False
-        self.available_cameras = []
         self.available_sources = List[Source]
-        self._current_src_index = 1
+        self._current_src_index = 0
         self._current_src : Source = None
-        self._frame_grabber = grabber # Renamed from _grabber to avoid conflict with instance
-        self._camera_grabber: Union[CameraGrabberInterface, None] = None
+        self._frame_grabbers = grabbers         # requested frame grabbers / sources
         self.camera_thread: Union[FrameAcquisitionThread, None] = None
         self._actual_camera_properties: Union[CameraProperties, None] = None # Stores properties from the opened camera
 
@@ -195,7 +182,7 @@ class CameraViewer(QMainWindow):
         self.settings_button.setIcon(QIcon(os.path.join(script_dir, r"rss\gear_black_full_10teeth.png")))
         self.settings_button.setIconSize(QSize(32, 32))
         self.settings_button.setFixedSize(QSize(36, 36))
-        self.settings_button.setEnabled(False)
+        # self.settings_button.setEnabled(False)
 
         # Add shared memory checkbox to top layout
         self.mmf_checkbox = QCheckBox("Shared Memory")
@@ -286,14 +273,14 @@ class CameraViewer(QMainWindow):
         if self.available_sources:
             src_names = [src.name for src in self.available_sources]
             self.camera_selector.addItems(src_names)
-            self._current_src_index = 1
             self.camera_selector.setCurrentIndex(self._current_src_index)
             self.camera_selector.currentIndexChanged.connect(self.switch_source)
+            self._current_src = self.available_sources[self._current_src_index]
             self.switch_source()
         else:
             self.camera_selector.addItem("No cameras found")
             self.label.setText("No cameras found.")
-            self.settings_button.setEnabled(False)
+            # self.settings_button.setEnabled(False)
             self.mmf_checkbox.setEnabled(self._shared_memory_available and False)
             self._current_src_index = -1
             if self.camera_thread:
@@ -307,25 +294,26 @@ class CameraViewer(QMainWindow):
         # Detect requested sources / object of requested types and 
         # fill self.available_sources with the list of Source objects corresponding to these types
         # Add 'file' as the first available source by default
-        self.available_sources = [Source(
-                                    name="file",
-                                    cls=FileStreaming, #! fix
-                                    cls_name=Source.KNOWN_GRABBERS.File,
-                                    cam_settings_wnd=FileStreamer_SettingsWindow,      #!fix
-                                    settings = None,            #!fix
-                                    id = None
-                                    )]
-        temp_grabber = self._frame_grabber.cls()
-        available_camera_ids = temp_grabber.detect_cameras()
-        temp_grabber.release()
-        for available_camera_id in available_camera_ids:
-            src = create_child_from_parent_deep(Source,
-                                self._frame_grabber,
-                                id = available_camera_id,
-                                name = f"{self._frame_grabber.cls_name}: {available_camera_id}")
-
-            # src.settings = self._frame_grabber.settings
-            self.available_sources.append(src)
+        self.available_sources = []
+        for frame_grabber in self._frame_grabbers:
+            # src = frame_grabber if type(frame_grabber) == Source else frame_grabber.cls()
+            if type(frame_grabber) == Source:
+                srcs = [frame_grabber]
+            else:
+                srcs = []
+                temp_grabber = frame_grabber.cls()
+                available_camera_ids = temp_grabber.detect_cameras()
+                temp_grabber.release()
+                for camera_id in available_camera_ids:
+                    src = create_child_from_parent_deep(Source,
+                                        frame_grabber,
+                                        id = camera_id,
+                                        name = f"{frame_grabber.cls_name}: {camera_id}")
+                    srcs.append(src)
+            self.available_sources += srcs
+        detected_srcs_str = [f"{available_src.cls_name}: {available_src.id}" for available_src in self.available_sources]
+        print(f"Detected sources.id = {detected_srcs_str}")
+        self._current_src_index = min(self._current_src_index, len(self.available_sources)-1)
 
     def start_framegrabber(self):
         """Starts a new camera acquisition thread with specified or default properties."""
@@ -345,7 +333,7 @@ class CameraViewer(QMainWindow):
         # if desired_props is None:
         #     desired_props = CameraProperties(width=640, height=480, fps=30.0, brightness=-1, offsetX=0, offsetY=0)
 
-        self._current_src.obj = self._current_src.cls()
+        self._current_src.obj = self._current_src.cls()     # self._camera_grabber -> self._current_src.obj
 
         self.camera_thread = FrameAcquisitionThread(self._current_src)   # desired_props
         
@@ -359,9 +347,9 @@ class CameraViewer(QMainWindow):
     def _on_camera_initialized_and_start_display(self, actual_props: CameraProperties):
         """Slot called when the camera acquisition thread initializes the camera."""
         self._actual_camera_properties = actual_props
-        self.print(f"CameraViewer: Camera initialized with actual properties: {actual_props}")
+        self.print(f"Frame grabber initialized with actual properties: {actual_props}")
 
-        self.settings_button.setEnabled(True)
+        # self.settings_button.setEnabled(True)
         self.mmf_checkbox.setEnabled(self._shared_memory_available and True)
         if not self._shared_memory_available:
             self.mmf_checkbox.setToolTip("Shared Memory functionality is unavailable due to missing pywin32 modules.")
@@ -392,13 +380,16 @@ class CameraViewer(QMainWindow):
     def switch_source(self):
         """Switch to the selected source based on combobox selection."""
         try:
-            self._current_src = self.available_sources[self.camera_selector.currentIndex()]
+            self._current_src_index = self.camera_selector.currentIndex()
+            self._current_src = self.available_sources[self._current_src_index]
+            print(f"Switching to {self._current_src.cls_name}: {self._current_src.id}")
             if self.autoplay:
                 self.start_framegrabber()
             else:
                 self._framegrabber_initialized = False 
+            self.settings_window = None
         except Exception as e:
-            self.print(f"{e}")
+            self.print_error(f"{e}")
 
     def _on_frame_ready(self, frame_package: dict):
         """Convert frame and display in QLabel, also pass to active plugins."""
@@ -445,23 +436,28 @@ class CameraViewer(QMainWindow):
             self.mmf_checkbox.setChecked(False)
         self.mmf_checkbox.setEnabled(self._shared_memory_available and False)
             
-        self.settings_button.setEnabled(False)
+        # self.settings_button.setEnabled(False)
 
     def open_camera_settings(self):
-        if not self.settings_window or not self.settings_window.isVisible():
-            self.settings_window = self._frame_grabber.cam_settings_wnd(
-                self.camera_thread,
-                self._camera_grabber,
-                self._actual_camera_properties,
-                parent=self
-            )
-            self.settings_window.settings_applied.connect(self.apply_camera_settings)
-            self.settings_window.accepted.connect(self.handle_settings_window_closed)
-            self.settings_window.rejected.connect(self.handle_settings_window_closed)
-            self.settings_window.show()
-        else:
-            self.settings_window.activateWindow()
-            self.settings_window.raise_()
+        try:
+            if not self.settings_window or not self.settings_window.isVisible():
+                self.settings_window = self.available_sources[self._current_src_index].cam_settings_wnd(
+                    # self.camera_thread,
+                    # self._current_src.obj,
+                    # self._actual_camera_properties,
+                    self._current_src,
+                    parent=self
+                )
+                self.settings_window.settings_applied.connect(self.apply_camera_settings)
+                self.settings_window.accepted.connect(self.handle_settings_window_closed)
+                self.settings_window.rejected.connect(self.handle_settings_window_closed)
+                self.settings_window.show()
+            else:
+                self.settings_window.activateWindow()
+                self.settings_window.raise_()
+        except Exception as e:
+            self.print_error(f"{e}")
+            traceback.print_exc(file=sys.stdout)
 
     def handle_settings_window_closed(self):
         """Slot to handle the settings window closing."""
@@ -480,13 +476,15 @@ class CameraViewer(QMainWindow):
                 pass
             self.settings_window = None
 
-    def apply_camera_settings(self, settings_props: CameraProperties):
+    def apply_camera_settings(self, updated_src: Source):
         """Applies the settings received from the settings dialog by restarting the camera."""
-        if self._camera_grabber and self._camera_grabber.is_opened():
-            self.print(f"Applying new settings and re-opening camera: {settings_props}")
-            self.start_framegrabber(self._current_src_index, settings_props)
-        else:
-            QMessageBox.warning(self, "No Active Camera", "No camera is currently active to apply settings to.")
+        self._current_src = updated_src
+        self.print(f"Updating settings for the current frame source: {updated_src}")
+        if self._current_src and self._current_src.obj and self._current_src.obj.is_opened():
+            self.print(f"Re-opening camera: {self._current_src.cls_name}: {self._current_src.id}")
+            self.start_framegrabber()
+        # else:
+        #     QMessageBox.warning(self, "No Active Camera", "No camera is currently active to apply settings to.")
 
     def toggle_shared_memory(self, state):
         """Handles enabling/disabling shared memory."""
@@ -544,8 +542,8 @@ class CameraViewer(QMainWindow):
         if self.shared_memory_sender:
             self.shared_memory_sender.release()
 
-        if self._camera_grabber:
-            self._camera_grabber.release()
+        if self._current_src and self._current_src.obj:
+            self._current_src.obj.release()
 
         super().closeEvent(event)
         self.print("Application closed.")
@@ -553,19 +551,23 @@ class CameraViewer(QMainWindow):
     def print(self, s: str):
         print(f"FrameGrabberManager: {s}")
 
+    def print_error(self, s):
+        print_error(f"FrameGrabberManager: {s}")
+
 
 def main():
     """
     For example: python -m cameras --grabber pycapture2 --width=640 --height=640 --mode=0 --fps=90 --offsetX=500 --offsetY=500
     
     """
-    parser = argparse.ArgumentParser(description="Camera Viewer Application")
+    args_grabbers_default = [Grabber.KNOWN_GRABBERS.OPENCV]
+    parser = argparse.ArgumentParser(description="Frame Grabber Manager")
     parser.add_argument(
-        "--grabber",
+        "--grabbers",
         type=str,
-        choices=[Grabber.KNOWN_GRABBERS.OPENCV, Grabber.KNOWN_GRABBERS.PyCapture2],
+        # choices=[Grabber.KNOWN_GRABBERS.File, Grabber.KNOWN_GRABBERS.OPENCV, Grabber.KNOWN_GRABBERS.PyCapture2],
         default=Grabber.KNOWN_GRABBERS.OPENCV,
-        help=f"Choose camera grabber backend: '{Grabber.KNOWN_GRABBERS.OPENCV}' (default) or '{Grabber.KNOWN_GRABBERS.PyCapture2}'"
+        help=f"Choose camera grabber backend: '{Grabber.KNOWN_GRABBERS.File}, {Grabber.KNOWN_GRABBERS.OPENCV}' (default) or '{Grabber.KNOWN_GRABBERS.PyCapture2}', etc."
     )
     parser.add_argument("--cameras_to_detect", default="opencv",
         help="Specify camera types (frame grabbers) or specific cameras to look for.")
@@ -593,42 +595,62 @@ def main():
         help="Enable the zebrafish gulping tracking plugin.")
     
     args = parser.parse_args()
+    print(f"input parameters: {args}")
 
-    print(args)
+    
+    def extract_names_simple(text):
+        text = text.strip()  # Remove leading/trailing whitespace
+        if text.startswith('[') and text.endswith(']'):
+            text = text[1:-1]
+        names = [name.strip() for name in 'file, opencv'.split(',')]
+        return names
 
-    print(f'{args.grabber == Grabber.KNOWN_GRABBERS.PyCapture2}, {args.grabber}, {Grabber.KNOWN_GRABBERS.PyCapture2}')
-    if args.grabber == Grabber.KNOWN_GRABBERS.PyCapture2:
-        from .grabbers.pycapture2.pycapture2_grabber import PyCapture2Grabber
-        from .grabbers.pycapture2.camera_settings_gui import SettingsWindow
-        grabber_config = Grabber(cls_name=Grabber.KNOWN_GRABBERS.PyCapture2, cls=PyCapture2Grabber, cam_settings_wnd=SettingsWindow,
-                          settings=CameraProperties(width=args.width,
-                                                    height=args.height,
-                                                    fps=args.fps,
-                                                    brightness=-1,
-                                                    offsetX=args.offsetX,
-                                                    offsetY=args.offsetY,
-                                                    other={'mode':args.mode})
-                         )
-        print("Using PyCapture2 as camera grabber.")
-    else:
-        from .grabbers.opencv.opencv_grabber import OpenCVCapture
-        from .grabbers.opencv.camera_settings_gui import SettingsWindow
-        grabber_config = Grabber(cls_name=Grabber.KNOWN_GRABBERS.OPENCV, cls=OpenCVCapture, cam_settings_wnd=SettingsWindow,
-                            settings=CameraProperties(width=args.width,
-                                                      height=args.height,
-                                                      fps=args.fps,
-                                                      brightness=args.brightness,
-                                                      offsetX=args.offsetX,
-                                                      offsetY=args.offsetY)
-                        )
-        if args.grabber == Grabber.KNOWN_GRABBERS.OPENCV:
-            print("Using OpenCV as camera grabber.")
-        else:
-            print(f"Error: Unknown grabber '{args.grabber}'. Defaulting to OpenCV.")
+    ### Initialize grabbers
+    args_grabbers = extract_names_simple(args.grabbers)
+    print(f"args_grabbers = {args_grabbers}")
+    # print(f'{args.grabber == Grabber.KNOWN_GRABBERS.PyCapture2}, {args.grabber}, {Grabber.KNOWN_GRABBERS.PyCapture2}')
+    grabbers = []
+    while not grabbers:
+        for grabber in args_grabbers:
+            if grabber == Grabber.KNOWN_GRABBERS.File:
+                from .grabbers.file.file_streamer import FileStreaming
+                from .grabbers.file.camera_settings_gui import SettingsWindow
+                grabbers.append( Source(cls_name=Grabber.KNOWN_GRABBERS.File, cls=FileStreaming, cam_settings_wnd=SettingsWindow,
+                                    id=os.path.join(os.path.expanduser("~"), r"Downloads\output.avi"),
+                                    name='files',
+                                    settings=CameraProperties(fps=args.fps)))
+                print("Added `file` as source.")
+            elif grabber == Grabber.KNOWN_GRABBERS.OPENCV:
+                from .grabbers.opencv.opencv_grabber import OpenCVCapture
+                from .grabbers.opencv.camera_settings_gui import SettingsWindow
+                grabbers.append( Grabber(cls_name=Grabber.KNOWN_GRABBERS.OPENCV, cls=OpenCVCapture, cam_settings_wnd=SettingsWindow,
+                                    settings=CameraProperties(width=args.width,
+                                                            height=args.height,
+                                                            fps=args.fps,
+                                                            brightness=args.brightness,
+                                                            offsetX=args.offsetX,
+                                                            offsetY=args.offsetY)) )
+                print("Added `opencv` as source.")
+            elif grabber == Grabber.KNOWN_GRABBERS.PyCapture2:
+                from .grabbers.pycapture2.pycapture2_grabber import PyCapture2Grabber
+                from .grabbers.pycapture2.camera_settings_gui import SettingsWindow
+                grabbers.append( Grabber(cls_name=Grabber.KNOWN_GRABBERS.PyCapture2, cls=PyCapture2Grabber, cam_settings_wnd=SettingsWindow,
+                                settings=CameraProperties(width=args.width,
+                                                            height=args.height,
+                                                            fps=args.fps,
+                                                            brightness=-1,
+                                                            offsetX=args.offsetX,
+                                                            offsetY=args.offsetY,
+                                                            other={'mode':args.mode})) )
+                print("Added `PyCapture2` as source.")
+        if not grabbers:
+            args_grabbers = [Grabber.KNOWN_GRABBERS.File, Grabber.KNOWN_GRABBERS.OPENCV]
+            print_warning(f"No known grabbers is found in provided arguments: {args.grabbers}. Defaulting to {args_grabbers_default}")
+
 
     app = QApplication(sys.argv)
 
-    # Initialize plugins based on command-line arguments
+    ### Initialize plugins based on command-line arguments
     enabled_plugins: List[FrameProcessingPlugin] = []
     if args.enable_recorder:
         from .plugins.video_recorder.recorder_plugin import RecorderPlugin
@@ -637,7 +659,7 @@ def main():
         from .plugins.tail_tracking.tail_tracking_plugin import TailTrackingPlugin
         enabled_plugins.append(TailTrackingPlugin())
 
-    viewer = CameraViewer(grabber_config, enabled_plugins)
+    viewer = CameraViewer(grabbers, enabled_plugins)
     viewer.show()
     sys.exit(app.exec_())
 
