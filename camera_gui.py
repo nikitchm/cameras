@@ -146,6 +146,8 @@ class CameraViewer(QMainWindow):
         self.shared_frame_id_counter = 1
         self._shared_memory_available = _SHARED_MEMORY_IMPORTS_SUCCESSFUL
 
+        self.image_scaling = True
+
         self.plugins: List[FrameProcessingPlugin] = plugins
         # Ensure plugins have a reference to this viewer for UI elements
         for plugin in self.plugins:
@@ -212,8 +214,9 @@ class CameraViewer(QMainWindow):
 
         # Image widget
         self.label = QLabel("No Camera Selected")
-        # self.label.setScaledContents(True)
+        self.label.setScaledContents(True)
         self.label.setAlignment(QtCore.Qt.AlignCenter)
+        # self.scroll_area = self.label
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True) # This makes the contained widget (label)
                                                   # resize to fill the scroll area's viewport
@@ -397,6 +400,9 @@ class CameraViewer(QMainWindow):
         if self._actual_camera_properties:
             # Set 
             q_image = self.convert_cv_qt(frame)
+            if self.image_scaling:
+                q_image = q_image.scaled(
+                  self.label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.label.setPixmap(QPixmap.fromImage(q_image))
 
             # Pass frame to all active plugins
@@ -410,6 +416,13 @@ class CameraViewer(QMainWindow):
                 else: 
                     frame_for_mmf = frame
                 self.shared_memory_sender.write_frame(frame_for_mmf, self.shared_frame_id_counter)
+
+    def resizeEvent(self, event):
+        # This is crucial for dynamic scaling.
+        # Whenever the window (and thus the label) resizes, re-scale the image.
+        # frame_package = {'frame': }
+        # self._on_frame_ready(frame_package)
+        super().resizeEvent(event)
 
     def convert_cv_qt(self, cv_img: np.ndarray) -> QImage:
         """Converts an OpenCV image (numpy array) to a QImage."""
@@ -616,7 +629,8 @@ def main():
                 from .grabbers.file.file_streamer import FileStreaming
                 from .grabbers.file.camera_settings_gui import SettingsWindow
                 grabbers.append( Source(cls_name=Grabber.KNOWN_GRABBERS.File, cls=FileStreaming, cam_settings_wnd=SettingsWindow,
-                                    id=os.path.join(os.path.expanduser("~"), r"Downloads\output.avi"),
+                                    # id=os.path.join(os.path.expanduser("~"), r"Downloads\output.avi"),
+                                    id=os.path.join(os.path.expanduser("~"), r"Downloads\zoe_Newbreed_2025-07-26_IMG_7271.mov"),
                                     name='files',
                                     settings=CameraProperties(fps=args.fps)))
                 print("Added `file` as source.")

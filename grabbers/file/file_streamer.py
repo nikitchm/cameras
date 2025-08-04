@@ -98,7 +98,7 @@ class FileStreaming(CameraGrabberInterface):
         if time_to_wait_until_next_frame_ms > 0.0:
             # print(f"sleeping {time_to_wait_until_next_frame_ms} ms")
             time.sleep(time_to_wait_until_next_frame_ms / 1000)
-        cur_time_ms = time.time()*1000
+        cur_time_ms = time.time() * 1000
         # print(f"time bw frames = {cur_time_ms - self._last_frame_time_ms} ms")
         self._last_frame_time_ms = cur_time_ms
         # print(f"_last_frame_time_ms = {self._last_frame_time_ms} ms")
