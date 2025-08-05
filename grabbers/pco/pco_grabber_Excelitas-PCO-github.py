@@ -2,9 +2,10 @@ import numpy as np
 import time
 from typing import List, Union, Dict, Optional
 from datetime import datetime
+import ctypes
 
 # Assuming camera_interface.py is in a parent directory or accessible
-from ..camera_interface import CameraGrabberInterface, CameraProperties
+from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
 
 # Import the official PCO Python SDK
 try:
@@ -75,7 +76,11 @@ class PCOCameraGrabber(CameraGrabberInterface):
             self.print(f"Error during PCO camera detection: {e}")
         return detected_cameras
 
-    def open(self, index: str, desired_props: CameraProperties) -> CameraProperties:
+    # def open(self, index: str, self._src.settings: CameraProperties) -> CameraProperties:
+    def open(self, src: Union[Source, None]=None) -> Source:
+        if src:
+            self._src = src
+
         if not self._is_initialized:
             raise RuntimeError("PCO Python SDK not initialized. Cannot open camera.")
 
@@ -91,16 +96,16 @@ class PCOCameraGrabber(CameraGrabberInterface):
             self.print(f"PCO Camera opened successfully.")
 
             # Set desired properties using high-level API
-            if desired_props.width > 0 and desired_props.height > 0:
+            if self._src.settings.width > 0 and self._src.settings.height > 0:
                 # pco.python might have a set_roi(x0, y0, width, height) or set_resolution()
                 # Example:
-                # self.pco_camera.set_roi(desired_props.offsetX, desired_props.offsetY, desired_props.width, desired_props.height)
+                # self.pco_camera.set_roi(self._src.settings.offsetX, self._src.settings.offsetY, self._src.settings.width, self._src.settings.height)
                 # Or, using the lower-level sdk object if needed:
                 # self.pco_camera.sdk.PCO_SetROI(...)
                 pass # You'll need to implement actual property setting based on pco.python API
 
-            if desired_props.fps > 0:
-                # Example: self.pco_camera.set_frame_rate(desired_props.fps)
+            if self._src.settings.fps > 0:
+                # Example: self.pco_camera.set_frame_rate(self._src.settings.fps)
                 pass # Implement setting FPS
 
             # After setting, arm/configure the camera (high-level API usually handles this implicitly or via a method call)
@@ -149,7 +154,7 @@ class PCOCameraGrabber(CameraGrabberInterface):
                 # The pco.python PyPI example does set_exposure_time.
                 # You'll need to figure out how to derive actual FPS if not directly available.
                 # Or if PCO exposes get_frame_rate() directly.
-                actual_props.fps = desired_props.fps # Placeholder, get actual value from camera
+                actual_props.fps = self._src.settings.fps # Placeholder, get actual value from camera
 
             self._actual_camera_properties = actual_props
             return actual_props
@@ -317,8 +322,8 @@ if __name__ == "__main__":
             camera_to_open = cameras[0] # Try to open the first detected camera
 
             # 2. Open camera with desired properties
-            desired_props = CameraProperties(width=1024, height=768, fps=10.0)
-            actual_props = grabber.open(camera_to_open, desired_props)
+            self._src.settings = CameraProperties(width=1024, height=768, fps=10.0)
+            actual_props = grabber.open(camera_to_open, self._src.settings)
 
             if grabber.is_opened():
                 print(f"Camera successfully opened with actual properties: {actual_props}")

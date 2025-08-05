@@ -71,18 +71,17 @@ class OpenCVCapture(CameraGrabberInterface):
             if actual_fps == 0.0:
                 actual_fps = desired_props.fps if desired_props.fps > 0 else 30.0 # Default to 30 if still 0 or unset
 
-            actual_props = CameraProperties(width=actual_width,
+            src.settings = CameraProperties(width=actual_width,
                                             height=actual_height,
                                             offsetX=desired_props.offsetX,
                                             offsetY=desired_props.offsetY, 
                                             fps=actual_fps,
                                             brightness=actual_brightness)
-            self.print(f"Actual Props: {actual_props}")
+            self.print(f"Actual Props: {src.settings}")
         else:
             self.print(f"Failed to open camera {camera_index} with any backend.")
             self.release() # Ensure release if opening failed
 
-        src.settings = actual_props 
         return src
 
     def get_frame(self) -> Union[np.ndarray, None]:

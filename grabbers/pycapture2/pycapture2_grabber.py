@@ -4,7 +4,7 @@ from typing import List, Union, Type # Import Type for type hints
 from enum import IntEnum
 
 # Assuming camera_interface.py and CameraProperties are available
-from ..camera_interface import CameraGrabberInterface, CameraProperties
+from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
 import sys, traceback
 from datetime import datetime
 
@@ -37,16 +37,21 @@ if _PYCAPTURE2_AVAILABLE:
             self.bus = fc2.BusManager()
             self.cam: Union[fc2.Camera, None] = None
             self._actual_props = CameraProperties(width=0, height=0, fps=0.0, brightness=-1)
+            self._camera_index: int = -1
             self.name = "" # name of the connected camera
 
-        def open(self, camera_index: Union[int, str], desired_props: CameraProperties) -> CameraProperties:
+        # def open(self, camera_index: Union[int, str], desired_props: CameraProperties) -> CameraProperties:
+        def open(self, src: Source) -> Source:
             """
             Initializes and opens the FLIR camera at the given index. If the index is larger than 1000, 
             it's treated as the camera's serial number.
             Attempts to set desired properties (width, height, fps, brightness).
             Returns the actual properties the camera was initialized with.
             """
-            camera_index = int(camera_index)    # ensure it's int
+            desired_props = src.settings
+            camera_index = int(src.id)    # ensure it's int
+            self._camera_index = camera_index
+
             self.release() # Ensure any previous camera is released
             try:
                 if camera_index > 1000:
@@ -118,62 +123,60 @@ if _PYCAPTURE2_AVAILABLE:
                 self.cam.startCapture()
                 printm('Started Capturing')
 
-                if True:
-                    # --- Get actual properties after capture starts ---
-                    actual_width, actual_height, actual_offsetX, actual_offsetY = 0, 0, 0, 0
-                    actual_fps = 0.0
+                # --- Get actual properties after capture starts ---
+                actual_width, actual_height, actual_offsetX, actual_offsetY = 0, 0, 0, 0
+                actual_fps = 0.0
 
-                    image_mode_conf = self.cam.getFormat7Configuration()[0]
-                    image_mode_attrs = vdir(image_mode_conf)
-                    image_mode = {}
-                    for image_mode_attr in image_mode_attrs:
-                        image_mode[image_mode_attr] = getattr(image_mode_conf, image_mode_attr)
+                image_mode_conf = self.cam.getFormat7Configuration()[0]
+                image_mode_attrs = vdir(image_mode_conf)
+                image_mode = {}
+                for image_mode_attr in image_mode_attrs:
+                    image_mode[image_mode_attr] = getattr(image_mode_conf, image_mode_attr)
 
-                    # The most reliable way to get actual dimensions is from a retrieved buffer
-                    # using PyCapture2's getCols() and getRows() methods.
-                    try:
-                        image = self.cam.retrieveBuffer()
-                        actual_width = image.getCols()
-                        actual_height = image.getRows()
-                        # printm(f"Retrieved actual dimensions from buffer: {actual_width}x{actual_height}")
-                    except Exception as e:
-                        printm(f"Error retrieving buffer for actual dimensions: {e}. Using those from the format7 configuration inquiry.")
-                        actual_width = image_mode['width']
-                        actual_height = image_mode['height']
+                # The most reliable way to get actual dimensions is from a retrieved buffer
+                # using PyCapture2's getCols() and getRows() methods.
+                try:
+                    image = self.cam.retrieveBuffer()
+                    actual_width = image.getCols()
+                    actual_height = image.getRows()
+                    # printm(f"Retrieved actual dimensions from buffer: {actual_width}x{actual_height}")
+                except Exception as e:
+                    printm(f"Error retrieving buffer for actual dimensions: {e}. Using those from the format7 configuration inquiry.")
+                    actual_width = image_mode['width']
+                    actual_height = image_mode['height']
 
-                   # Get actual offsetX
-                    try:
-                        actual_offsetX = image_mode['offsetX']
-                        actual_offsetY = image_mode['offsetY']
-                    except Exception as e:
-                        printm(f"Error trying to get offsets from the format 7 configuration: {e}")
-  
-                    # Get actual FPS
-                    try:
-                        prop = self.cam.getProperty(fc2.PROPERTY_TYPE.FRAME_RATE)
-                        actual_fps = prop.absValue
-                        # printm(f"Actual FPS from property: {actual_fps}")
-                    except fc2.Fc2error:
-                        printm(f"Warning: Could not get FRAME_RATE property. Falling back to configured/desired FPS.")
-                        # Fallback to what was attempted to be set, or desired_props.fps
-                        actual_fps = desired_props.fps if desired_props.fps > 0 else 30.0
-                    if actual_fps == 0.0: # Final fallback if still 0
-                        actual_fps = desired_props.fps if desired_props.fps > 0 else 30.0
+                # Get actual offsetX
+                try:
+                    actual_offsetX = image_mode['offsetX']
+                    actual_offsetY = image_mode['offsetY']
+                except Exception as e:
+                    printm(f"Error trying to get offsets from the format 7 configuration: {e}")
 
-                    actual_brightness = -1
-                    try:
-                        prop = self.cam.getProperty(fc2.PROPERTY_TYPE.BRIGHTNESS)
-                        actual_brightness = int(prop.absValue)
-                    except fc2.Fc2error:
-                        pass # Brightness property might not be supported
+                # Get actual FPS
+                try:
+                    prop = self.cam.getProperty(fc2.PROPERTY_TYPE.FRAME_RATE)
+                    actual_fps = prop.absValue
+                    # printm(f"Actual FPS from property: {actual_fps}")
+                except fc2.Fc2error:
+                    printm(f"Warning: Could not get FRAME_RATE property. Falling back to configured/desired FPS.")
+                    # Fallback to what was attempted to be set, or desired_props.fps
+                    actual_fps = desired_props.fps if desired_props.fps > 0 else 30.0
+                if actual_fps == 0.0: # Final fallback if still 0
+                    actual_fps = desired_props.fps if desired_props.fps > 0 else 30.0
 
-                    self._actual_props = CameraProperties(width=actual_width, height=actual_height,
-                                                          offsetX=actual_offsetX, offsetY=actual_offsetY,
-                                                          fps=actual_fps, brightness=actual_brightness)
-                    # printm(f"Camera {self.name} opened. Actual Props: {self._actual_props}")
-                    return self._actual_props
-                else:
-                    return desired_props
+                actual_brightness = -1
+                try:
+                    prop = self.cam.getProperty(fc2.PROPERTY_TYPE.BRIGHTNESS)
+                    actual_brightness = int(prop.absValue)
+                except fc2.Fc2error:
+                    pass # Brightness property might not be supported
+
+                self._actual_props = CameraProperties(width=actual_width, height=actual_height,
+                                                        offsetX=actual_offsetX, offsetY=actual_offsetY,
+                                                        fps=actual_fps, brightness=actual_brightness)
+                # printm(f"Camera {self.name} opened. Actual Props: {self._actual_props}")
+                src.settings = self._actual_props
+                return src
 
             except fc2.Fc2error as e:
                 printm(f"PyCapture2Grabber Error (Fc2error): {e}")
