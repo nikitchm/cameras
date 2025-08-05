@@ -657,6 +657,17 @@ def main():
                                                             offsetY=args.offsetY,
                                                             other={'mode':args.mode})) )
                 print("Added `PyCapture2` as source.")
+            elif grabber == Grabber.KNOWN_GRABBERS.PCO:
+                from .grabbers.pco.pco_grabber_Excelitas_PCO_github import PCOCameraGrabber
+                from .grabbers.pco.camera_settings_gui import SettingsWindow
+                grabbers.append( Grabber(cls_name=Grabber.KNOWN_GRABBERS.PCO, cls=PCOCameraGrabber, cam_settings_wnd=SettingsWindow,
+                                settings=CameraProperties(width=args.width,
+                                                            height=args.height,
+                                                            fps=args.fps,
+                                                            brightness=-1,
+                                                            offsetX=args.offsetX,
+                                                            offsetY=args.offsetY)) )
+                print("Added `PCO` as source.")
         if not grabbers:
             args_grabbers = [Grabber.KNOWN_GRABBERS.File, Grabber.KNOWN_GRABBERS.OPENCV]
             print_warning(f"No known grabbers is found in provided arguments: {args.grabbers}. Defaulting to {args_grabbers_default}")

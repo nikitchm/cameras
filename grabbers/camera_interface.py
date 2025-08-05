@@ -21,9 +21,10 @@ class Grabber:
     This class describes the properties of a particular grabber, s.a., FileStreamer, Opencv, or PyCapture2
     """
     class KNOWN_GRABBERS:               # nicknames for the grabbers. Allow comparing strings via . calls.
+        File = "file"
         OPENCV = "opencv"
         PyCapture2 = "pycapture2"
-        File = "file"
+        PCO = "pco"
     cls: Type["CameraGrabberInterface"] = None  # Use Type for class reference. We 
     cls_name: KNOWN_GRABBERS = None
     cam_settings_wnd: Type[QDialog] = None      # Use Type for class reference
