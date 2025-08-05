@@ -615,7 +615,7 @@ def main():
         text = text.strip()  # Remove leading/trailing whitespace
         if text.startswith('[') and text.endswith(']'):
             text = text[1:-1]
-        names = [name.strip() for name in 'file, opencv'.split(',')]
+        names = [name.strip() for name in text.split(',')]
         return names
 
     ### Initialize grabbers
