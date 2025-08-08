@@ -658,7 +658,7 @@ def main():
                                                             other={'mode':args.mode})) )
                 print("Added `PyCapture2` as source.")
             elif grabber == Grabber.KNOWN_GRABBERS.PCO:
-                from .grabbers.pco.pco_grabber_Excelitas_PCO_github import PCOCameraGrabber
+                from .grabbers.pco.pco_grabber import PCOCameraGrabber
                 from .grabbers.pco.camera_settings_gui import SettingsWindow
                 grabbers.append( Grabber(cls_name=Grabber.KNOWN_GRABBERS.PCO, cls=PCOCameraGrabber, cam_settings_wnd=SettingsWindow,
                                 settings=CameraProperties(width=args.width,
