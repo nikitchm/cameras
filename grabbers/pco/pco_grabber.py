@@ -15,7 +15,7 @@ import time
 from ..camera_interface import CameraGrabberInterface, Source, CameraProperties, Grabber
 
 # A dummy settings window class for demonstration purposes
-class PcoSettingsWindow:
+class PCOSettingsWindow:
     def show(self):
         print("Showing PCO Camera settings window...")
 
@@ -68,6 +68,8 @@ class PCOCameraGrabber(CameraGrabberInterface):
                     src.settings.other['configuration'] = cam.configuration
                 except:
                     pass
+                self.update_parameter_constraints()
+                src.settings.other['parameter_constraints'] = self.parameter_constraints
 
             return [src]
         except Exception as e:
@@ -221,9 +223,9 @@ class PCOCameraGrabber(CameraGrabberInterface):
 # Register the PCO grabber with the main grabber list
 def register_pco_grabber():
     grabber_entry = Grabber(
-        cls=PcoCameraGrabber,
+        cls=PCOCameraGrabber,
         cls_name=Grabber.KNOWN_GRABBERS.PCO,
-        cam_settings_wnd=PcoSettingsWindow
+        cam_settings_wnd=PCOSettingsWindow
     )
     print("PCO camera grabber registered.")
     return grabber_entry
@@ -232,13 +234,13 @@ if __name__ == '__main__':
     # Example usage (for testing purposes)
     register_pco_grabber()
     
-    pco_grabber = PcoCameraGrabber()
+    pco_grabber = PCOCameraGrabber()
     cameras = pco_grabber.detect_cameras()
     print(f"Detected cameras: {cameras}")
     
     if cameras:
         source_obj = Source(
-            cls=PcoCameraGrabber,
+            cls=PCOCameraGrabber,
             cls_name=Grabber.KNOWN_GRABBERS.PCO,
             id=0,
             name=cameras[0],
