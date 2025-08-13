@@ -7,6 +7,7 @@ from enum import IntEnum
 from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
 import sys, traceback
 from datetime import datetime
+import copy
 
 
 def printm(s: str):
@@ -330,12 +331,13 @@ if _PYCAPTURE2_AVAILABLE:
                     return False
             return False
 
-        def detect_cameras(self) -> List[str]:
+        def detect_cameras(self, src: Source) -> List[Source]:
             """
             Detects available FLIR cameras using PyCapture2's BusManager.
             Returns a list of camera names (e.g., "FLIR Camera (SN: 12345678)").
             """
-            detected_camera_names = []
+            # detected_camera_names = []
+            srcs = []
             try:
                 num_cameras = self.bus.getNumOfCameras()
                 printm(f"Detected {num_cameras} FLIR cameras.")
@@ -346,8 +348,11 @@ if _PYCAPTURE2_AVAILABLE:
                         cam.connect(pgrGuid)
                         camera_info = cam.getCameraInfo()
                         name = f"{camera_info.vendorName} {camera_info.modelName} (SN: {camera_info.serialNumber})"
-                        # detected_camera_names.append(name)
-                        detected_camera_names.append(f"{camera_info.serialNumber}")
+                        # detected_camera_names.append(f"{camera_info.serialNumber}")
+                        new_src = copy.deepcopy(src)
+                        new_src.id = f"{camera_info.serialNumber}"
+                        new_src.name = f"{src.cls_name}: {new_src.id}"
+                        srcs.append(new_src)
                         printm(f"Found: {name}")
                     except fc2.Fc2error as e:
                         printm(f"Could not connect to camera at index {i}: {e}")
@@ -362,7 +367,7 @@ if _PYCAPTURE2_AVAILABLE:
             except Exception as e:
                 printm(f"General error during camera detection: {e}")
                 
-            return detected_camera_names if detected_camera_names else ["No FLIR cameras detected"]
+            return srcs
         
 ##################################################################
         def _set_format7_config(self, format7_config):

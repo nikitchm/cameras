@@ -23,14 +23,16 @@ class FileStreaming(CameraGrabberInterface):
         self._ms_bw_frames = 0.0              # time [ms] between frames computed from fps
         self._last_frame_time_ms = -1000.0  # time [ms] when the last frame was acquired
 
-    def detect_cameras(self) -> List[str]:
+    def detect_cameras(self, src: Source) -> List[Source]:
         """
         For video files, this method would typically just return a placeholder or
         expect the video path to be known beforehand. We'll return an empty list
         as we don't 'detect' video files in the same way we detect cameras.
         """
         # print("Note: detect_cameras is not applicable for video file grabbers.")
-        return [self._video_path]
+        src.id = self._video_path
+        src.name = f"{src.cls_name}: {src.id}"
+        return [src]
 
     def open(self, src: Union[Source, None]=None) -> Source:
         """

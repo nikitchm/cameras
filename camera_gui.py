@@ -305,14 +305,9 @@ class CameraViewer(QMainWindow):
             else:
                 srcs = []
                 temp_grabber = frame_grabber.cls()
-                available_camera_ids = temp_grabber.detect_cameras()
+                src = create_child_from_parent_deep(Source, frame_grabber)
+                srcs = temp_grabber.detect_cameras(src)
                 temp_grabber.release()
-                for camera_id in available_camera_ids:
-                    src = create_child_from_parent_deep(Source,
-                                        frame_grabber,
-                                        id = camera_id,
-                                        name = f"{frame_grabber.cls_name}: {camera_id}")
-                    srcs.append(src)
             self.available_sources += srcs
         detected_srcs_str = [f"{available_src.cls_name}: {available_src.id}" for available_src in self.available_sources]
         print(f"Detected sources.id = {detected_srcs_str}")

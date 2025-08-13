@@ -1,63 +1,98 @@
-import sys#, os
+import sys
 import numpy as np
-from PyQt5.QtWidgets import ( # Changed from PyQt6 to PyQt5
-    QApplication, QDialog, QVBoxLayout, QHBoxLayout, # QDialog instead of QWidget
-    QLabel, QSlider, QLineEdit, QPushButton, QFormLayout, QMessageBox
+from PyQt5.QtWidgets import ( 
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout,
+    QLabel, QSlider, QLineEdit, QPushButton, QFormLayout, QMessageBox, QGridLayout, QSpinBox, QComboBox, QCheckBox
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIntValidator, QDoubleValidator
-# from opencv_camera_gui_multithreading_camera_selector import FrameAcquisitionThread
-import cv2 # Still needed for CAP_PROP constants
 from typing import Union
 
-# current_script_dir = os.path.dirname(os.path.abspath(__file__))
-# project_root_dir = os.path.dirname(current_script_dir)
-# sys.path.insert(0, project_root_dir)
-# print(project_root_dir)
-# from .. import camera_interface
-from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
+try:
+    from ..camera_interface import CameraProperties, Source
+except ValueError:
+    import os
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root_dir = os.path.dirname(current_script_dir)
+    sys.path.insert(0, project_root_dir) 
+    from camera_interface import CameraProperties, Source
+
+possible_values = {
+    # 'min width': cam_description['min width'],
+    # 'max width': cam_description['max width'],
+    # 'min height': cam_description['min height'],
+    # 'max height': cam_description['max height'],
+    # 'min exposure time': cam_description['min exposure time'],
+    # 'max exposure time': cam_description['max exposure time'],
+    'trigger_modes': ['auto sequence', 'software trigger', 'external exposure start & software trigger', 'external exposure control', 
+                      'external synchronized', 'fast external exposure control', 'external CDS control', 'slow external exposure control',
+                      'external synchronized HDSDI'],
+    'set_maximum_fps': ['on', 'off'],   # set the image timing of the camera so that the maximum frame rate and the maximum exposure time for this frame rate is achieved. The maximum image frame rate (FPS = frames per second) depends on the pixel rate and the image area selection.
+    'acquire_mode' : ['auto', 'external', 'external modulated'],     # the acquire mode of the camera. Acquire mode can be either [auto], [external] or [external modulate].
+    # 'binning' : cam_description['binning horz vec'], 
+}
+controls_tooltip = {
+    'set_maximum_fps': 'set the image timing of the camera so that the maximum frame rate and the maximum exposure time for this frame rate is achieved. The maximum image frame rate (FPS = frames per second) depends on the pixel rate and the image area selection.',
+    'acquire_mode': 'the acquire mode of the camera. Acquire mode can be either [auto], [external] or [external modulate].'
+}
 
 
 class SettingsWindow(QDialog): # Inherit from QDialog
     # Signal emitted when settings are applied, carrying CameraProperties object
     settings_applied = pyqtSignal(Source)
 
-    def __init__(self, src: Source,
-                 parent=None):
+    def __init__(self, src: Source, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Camera Settings")
         self.setGeometry(200, 200, 500, 350) # Adjusted geometry
 
-        # self._acquisition_thread = acquisition_thread_instance
-        # self._camera_grabber = grabber_instance
-        # self._initial_props = initial_props # Store initial properties
         self.src = src
+        self.parameter_constraints = self.src.settings.other['parameter_constraints']
 
         self.init_ui()
         self.load_current_settings()
 
     def init_ui(self):
-        main_layout = QVBoxLayout()
-        form_layout = QFormLayout()
+        grid_layout = QGridLayout()
+        
+        # Row 0: Titles for the two groups of fields
+        grid_layout.addWidget(QLabel("<b>Top-Left Corner</b>"), 0, 0, 1, 2)
+        grid_layout.addWidget(QLabel("<b>Dimensions</b>"), 0, 2, 1, 2)
+        
+        # Row 1: X and Width inputs
+        grid_layout.addWidget(QLabel("X:"), 1, 0)
+        self.x_spinbox = self.create_spinbox()
+        grid_layout.addWidget(self.x_spinbox, 1, 1)
+
+        grid_layout.addWidget(QLabel("Width:"), 1, 2)
+        self.width_spinbox = self.create_spinbox(min_val=self.parameter_constraints['min width'], max_val=self.parameter_constraints['max width'])
+        grid_layout.addWidget(self.width_spinbox, 1, 3)
+
+        # Row 2: Y and Height inputs
+        grid_layout.addWidget(QLabel("Y:"), 2, 0)
+        self.y_spinbox = self.create_spinbox()
+        grid_layout.addWidget(self.y_spinbox, 2, 1)
+
+        grid_layout.addWidget(QLabel("Height:"), 2, 2)
+        self.height_spinbox = self.create_spinbox(min_val=1)
+        grid_layout.addWidget(self.height_spinbox, 2, 3)
+
 
         # --- Width Control ---
         self.width_input = QLineEdit()
         self.width_input.setValidator(QIntValidator(1, 4096)) # Assuming common max width
         self.width_input.editingFinished.connect(lambda: self._validate_and_update_value(self.width_input))
-        form_layout.addRow("Width (pixels):", self.width_input)
 
         # --- Height Control ---
         self.height_input = QLineEdit()
         self.height_input.setValidator(QIntValidator(1, 4096)) # Assuming common max height
         self.height_input.editingFinished.connect(lambda: self._validate_and_update_value(self.height_input))
-        form_layout.addRow("Height (pixels):", self.height_input)
 
         # --- FPS Control ---
         self.fps_input = QLineEdit()
         # Allow float values for FPS
         self.fps_input.setValidator(QDoubleValidator(1.0, 1000.0, 2)) # Min 1.0, Max 1000.0, 2 decimal places
         self.fps_input.editingFinished.connect(lambda: self._validate_and_update_value(self.fps_input))
-        form_layout.addRow("FPS:", self.fps_input)
 
         # --- Brightness Control ---
         self.brightness_slider = QSlider(Qt.Horizontal)
@@ -66,27 +101,56 @@ class SettingsWindow(QDialog): # Inherit from QDialog
         self.brightness_slider.setTickInterval(25)
         self.brightness_slider.valueChanged.connect(self._update_brightness_value)
 
+        # --- Trigger modes ---
+        self.trigger_modes = QComboBox()
+        for trigger_mode in possible_values['trigger_modes']:
+            self.trigger_modes.addItem(trigger_mode)
+
+        # --- Acquire modes ---
+        self.acquire_modes = QComboBox()
+        for acquire_mode in possible_values['acquire_mode']:
+            self.acquire_modes.addItem(acquire_mode)
+
+        # --- set_maximum_fps ---
+        self.set_at_maximum_fps = QCheckBox()
+
         self.brightness_value_label = QLabel("0")
         brightness_layout = QHBoxLayout()
         brightness_layout.addWidget(self.brightness_slider)
         brightness_layout.addWidget(self.brightness_value_label)
+
+        form_layout = QFormLayout()
+        # form_layout.addRow("Width (pixels):", self.width_input)
+        # form_layout.addRow("Height (pixels):", self.height_input)
+        form_layout.addRow("Trigger modes:", self.trigger_modes)
+        form_layout.addRow("Acquire modes:", self.acquire_modes)
+        form_layout.addRow("Set at maximum FPS:", self.set_at_maximum_fps)
+        form_layout.addRow("FPS:", self.fps_input)
         form_layout.addRow("Brightness:", brightness_layout)
 
-
-        main_layout.addLayout(form_layout)
-
         # --- Action Buttons ---
-        button_layout = QHBoxLayout()
         self.apply_button = QPushButton("Apply")
         self.apply_button.clicked.connect(self.apply_settings)
-        button_layout.addWidget(self.apply_button)
 
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel_settings)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.apply_button)
         button_layout.addWidget(self.cancel_button)
 
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(grid_layout)
+        main_layout.addLayout(form_layout)
         main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
+
+    def create_spinbox(self, min_val=0, max_val=100000):
+        min_val = 0 if min_val is None else min_val
+        max_val = 0 if max_val is None else max_val
+        spinbox = QSpinBox(self)
+        spinbox.setRange(min_val, max_val)
+        return spinbox
 
     def load_current_settings(self):
         """Loads current camera properties into the UI."""
@@ -176,100 +240,7 @@ class SettingsWindow(QDialog): # Inherit from QDialog
 
 # --- Example Usage (for testing camera_settings_gui.py in isolation) ---
 if __name__ == '__main__':
-    # Mock implementations for testing purposes
-    class MockCameraGrabber(CameraGrabberInterface):
-        def __init__(self):
-            self._is_open = False
-            self._props = CameraProperties(640, 480, 0, 0, 30.0, 100) # Initial mock properties
-
-        def open(self, camera_index: int, desired_props: CameraProperties) -> CameraProperties:
-            print(f"MockGrabber: Opening with desired: {desired_props}")
-            # Simulate setting some properties
-            if desired_props.width > 0: self._props.width = desired_props.width
-            if desired_props.height > 0: self._props.height = desired_props.height
-            if desired_props.fps > 0: self._props.fps = desired_props.fps
-            if desired_props.brightness != -1: self._props.brightness = desired_props.brightness
-            self._is_open = True
-            print(f"MockGrabber: Opened with actual: {self._props}")
-            return self._props
-
-        def get_frame(self) -> Union[np.ndarray, None]:
-            if not self._is_open: return None
-            # Return a dummy frame
-            return np.zeros((self._props.height, self._props.width, 3), dtype=np.uint8)
-
-        def get_property(self, prop_id: int) -> Union[float, None]:
-            if prop_id == cv2.CAP_PROP_FRAME_WIDTH: return float(self._props.width)
-            if prop_id == cv2.CAP_PROP_FRAME_HEIGHT: return float(self._props.height)
-            if prop_id == cv2.CAP_PROP_FPS: return self._props.fps
-            if prop_id == cv2.CAP_PROP_BRIGHTNESS: return float(self._props.brightness)
-            return -1.0 # Indicate not found/supported
-
-        def set_property(self, prop_id: int, value: float) -> bool:
-            if prop_id == cv2.CAP_PROP_FRAME_WIDTH: self._props.width = int(value)
-            if prop_id == cv2.CAP_PROP_FRAME_HEIGHT: self._props.height = int(value)
-            if prop_id == cv2.CAP_PROP_FPS: self._props.fps = float(value)
-            if prop_id == cv2.CAP_PROP_BRIGHTNESS: self._props.brightness = int(value)
-            print(f"MockGrabber: Set prop {prop_id} to {value}")
-            return True
-
-        def release(self): self._is_open = False
-        def is_opened(self): return self._is_open
-        def detect_cameras(self): return ["Mock Camera 0"]
-
-    class MockFrameAcquisitionThread(QThread):
-        camera_initialized = pyqtSignal(CameraProperties)
-        frame_ready = pyqtSignal(np.ndarray)
-        error_occurred = pyqtSignal(str)
-
-        def __init__(self, grabber_instance: CameraGrabberInterface, camera_index: int, desired_props: CameraProperties):
-            super().__init__()
-            self._grabber = grabber_instance
-            self._camera_index = camera_index
-            self._desired_props = desired_props
-            self._running = True
-
-        def run(self):
-            actual_props = self._grabber.open(self._camera_index, self._desired_props)
-            self.camera_initialized.emit(actual_props)
-            while self._running:
-                frame = self._grabber.get_frame()
-                if frame is not None:
-                    self.frame_ready.emit(frame)
-                self.msleep(100) # Simulate frame rate
-        def stop(self):
-            self._running = False
-            self.quit()
-            self.wait()
-
-
     app = QApplication(sys.argv)
-
-    mock_grabber = MockCameraGrabber()
-    initial_camera_props = mock_grabber.open(0, CameraProperties(640, 480, 0, 0, 30.0, 150)) # Simulate opening a camera
-    mock_acquisition_thread = MockFrameAcquisitionThread(mock_grabber, 0, initial_camera_props)
-
-
-    def on_settings_applied(new_props: CameraProperties):
-        print(f"Settings Applied: {new_props}")
-        # In a real app, you would restart the camera with these new_props
-        # mock_acquisition_thread.stop()
-        # new_thread = MockFrameAcquisitionThread(mock_grabber, 0, new_props)
-        # new_thread.start()
-
-    def on_settings_window_closed():
-        print("Settings window closed.")
-
-
-    settings_window = SettingsWindow(
-        acquisition_thread_instance=mock_acquisition_thread,
-        grabber_instance=mock_grabber,
-        initial_props=initial_camera_props, # Pass the initial properties
-    )
-    settings_window.settings_applied.connect(on_settings_applied)
-    settings_window.accepted.connect(on_settings_window_closed) # Connect accepted signal
-    settings_window.rejected.connect(on_settings_window_closed) # Connect rejected signal
-
-
+    settings_window = SettingsWindow(Source())
     settings_window.show()
     sys.exit(app.exec_())

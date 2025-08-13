@@ -23,6 +23,26 @@ class PCOCameraGrabber(CameraGrabberInterface):
     """
     PCO camera grabber implementation using the pco Python package.
     """
+
+    parameter_constraints = {
+        'min width': None,
+        'max width': None,
+        'min height': None,
+        'max height': None,
+        'min exposure time': None,
+        'max exposure time': None,
+        'trigger_modes': ['auto sequence', 'software trigger', 'external exposure start & software trigger', 'external exposure control', 
+                        'external synchronized', 'fast external exposure control', 'external CDS control', 'slow external exposure control',
+                        'external synchronized HDSDI'],
+        'set_maximum_fps': ['on', 'off'],   # set the image timing of the camera so that the maximum frame rate and the maximum exposure time for this frame rate is achieved. The maximum image frame rate (FPS = frames per second) depends on the pixel rate and the image area selection.
+        'acquire_mode' : ['auto', 'external', 'external modulated'],     # the acquire mode of the camera. Acquire mode can be either [auto], [external] or [external modulate].
+        'binning' : None, 
+    }
+    parameter_tooltips = {
+        'set_maximum_fps': 'set the image timing of the camera so that the maximum frame rate and the maximum exposure time for this frame rate is achieved. The maximum image frame rate (FPS = frames per second) depends on the pixel rate and the image area selection.',
+        'acquire_mode': 'the acquire mode of the camera. Acquire mode can be either [auto], [external] or [external modulate].'
+    }
+
     def __init__(self):
         super().__init__()
         self._cam = None
@@ -30,15 +50,26 @@ class PCOCameraGrabber(CameraGrabberInterface):
         self._buffer_size = 10  # Default ring buffer size
         self._default_exposure_time = 0.01
 
-    def detect_cameras(self) -> List[str]:
+    def detect_cameras(self, src: Source) -> List[Source]:
         """
         Detects available PCO cameras by attempting to open one.
         The pco package defaults to the first available camera.
         """
         try:
             with pco.Camera() as cam:
-                serial_number = cam.description['serial']
-            return [serial_number]
+                src.id = cam.description['serial']
+                src.name = f"{src.cls_name}: {src.id}"
+                try:
+                    src.settings.other['description'] = cam.description
+                except:
+                    pass
+                try:
+                    cam.sdk.arm_camera()
+                    src.settings.other['configuration'] = cam.configuration
+                except:
+                    pass
+
+            return [src]
         except Exception as e:
             print(f"Error detecting PCO cameras: {e}")
             return []
@@ -53,28 +84,28 @@ class PCOCameraGrabber(CameraGrabberInterface):
             self._cam_description = self._cam.description
 
             if self._cam:
-                # Corrected: Call set-_trigger_mode on the 'rec' attribute
-                # self._cam.sdk.set_camera_synch_mode('master')
-                
-                # Corrected: Set exposure_time directly on the Camera object
                 self._cam.exposure_time = src.settings.other.get('exposure_time', self._default_exposure_time)
+                self._cam.sdk.arm_camera()
+                self.fps = self.get_fps()
+
+                # get parameter constraints
+                self.update_parameter_constraints()
+                src.settings.other['parameter_constraints'] = self.parameter_constraints
 
                 # Set up the ring buffer for acquisition.
                 self._cam.record(number_of_images=self._buffer_size, mode='ring buffer')
-                # self._cam.record(4, mode='ring buffer')
                 self._rec_settings = self._cam.rec.get_settings()
                 self._is_opened = True
 
                 # Get the actual camera properties after opening.
-                self._actual_camera_properties = CameraProperties(
+                src.settings = CameraProperties(
                     width=self._rec_settings['width'],
                     height=self._rec_settings['height'],
-                    fps=0, # Corrected: fps is a property of the 'rec' attribute
+                    fps=self.fps,
                     brightness=src.settings.brightness,
                     other=src.settings.other
                 )
-                src.settings = self._actual_camera_properties
-                time.sleep(1)
+                time.sleep(.5)  # need to sleep a little before starting recording, getting an error otherwise
                 print(f"Successfully opened PCO camera: {src.name}")
                 return src
         except Exception as e:
@@ -108,7 +139,7 @@ class PCOCameraGrabber(CameraGrabberInterface):
                 timestamp = datetime.fromtimestamp(meta['timestamp'])
             except KeyError as e:
                 # print(e)
-                print(meta)
+                # print(meta)
                 timestamp = time.time()
 
             return {'frame': image_array, 'timestamp': timestamp}
@@ -160,6 +191,32 @@ class PCOCameraGrabber(CameraGrabberInterface):
         except Exception as e:
             print(f"Error setting property {prop_id} to {value}: {e}")
             return False
+        
+    def get_fps(self):
+        try:
+            fps_data = self._cam.sdk.get_frame_rate()
+            return fps_data['frame rate mHz']/1000
+        except Exception as e:
+            return 0
+        
+    def update_parameter_constraints(self):
+        try:
+            self.parameter_constraints['min width'] = self._cam_description['min width']
+            self.parameter_constraints['max width'] = self._cam_description['max width']
+            self.parameter_constraints['min height'] = self._cam_description['min height']
+            self.parameter_constraints['max height'] = self._cam_description['max height']
+        except:
+            pass
+        try:
+            self.parameter_constraints['binning'] = self._cam_description['binning horz vec']
+        except:
+            pass
+        try:
+            self.parameter_constraints['min exposure time'] = self._cam_description['min exposure time']
+            self.parameter_constraints['max exposure time'] = self._cam_description['max exposure time']
+        except:
+            pass
+        
 
 # Register the PCO grabber with the main grabber list
 def register_pco_grabber():

@@ -4,6 +4,7 @@ from typing import List, Tuple, Union
 from ..camera_interface import CameraGrabberInterface, CameraProperties, Source
 from ...utils.StderrSuppressor import StderrSuppressor
 from datetime import datetime
+import copy
 
 
 class OpenCVCapture(CameraGrabberInterface):
@@ -117,13 +118,14 @@ class OpenCVCapture(CameraGrabberInterface):
             return self.cap.set(prop_id, value)
         return False
 
-    def detect_cameras(self) -> List[str]:
+    def detect_cameras(self, src: Source) -> List[Source]:
+        
         """
         Detects available cameras and returns a list of their names (e.g., "Camera 0").
         Prioritizes DSHOW for detection for robustness, then MSMF.
         Stops early on consecutive failures.
         """
-        detected_camera_names = []
+        srcs = []
         max_cameras_to_check = 10 # Still keep a reasonable upper bound for detection
         consecutive_failures = 0
 
@@ -140,7 +142,11 @@ class OpenCVCapture(CameraGrabberInterface):
                     # Try DSHOW first for detection (often more reliable for simple open/close checks)
                     cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
                     if cap.isOpened():
-                        detected_camera_names.append(f"{i}") # Just add the number, backend preference is for 'open'
+                        new_src = copy.deepcopy(src)
+                        new_src.id = f"{i}"
+                        new_src.name = f"{src.cls_name}: {new_src.id}"
+                        srcs.append(new_src)
+                        # detected_camera_names.append(f"{i}") # Just add the number, backend preference is for 'open'
                         self.print(f"Detected Camera {i} using DSHOW (for detection).")
                         is_opened_successfully_this_attempt = True
                         consecutive_failures = 0 # Reset counter on success
@@ -152,7 +158,11 @@ class OpenCVCapture(CameraGrabberInterface):
                         cap.release()
                     cap = cv2.VideoCapture(i, cv2.CAP_MSMF)
                     if cap.isOpened():
-                        detected_camera_names.append(f"{i}") # Just add the number
+                        new_src = copy.deepcopy(src)
+                        new_src.id = f"{i}"
+                        new_src.name = f"{src.cls_name}: {new_src.id}"
+                        srcs.append(new_src)
+                        # detected_camera_names.append(f"{i}") # Just add the number
                         self.print(f"Detected Camera {i} using MSMF (for detection).")
                         is_opened_successfully_this_attempt = True
                         consecutive_failures = 0 # Reset counter on success
@@ -182,7 +192,7 @@ class OpenCVCapture(CameraGrabberInterface):
                     break # Break the loop if too many failures
 
         # self.print("Camera detection complete.")
-        return detected_camera_names
+        return srcs
 
     def print(self, s: str):
         print(f"Opencv frame grabber: {s}")
